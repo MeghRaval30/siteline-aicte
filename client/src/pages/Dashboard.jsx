@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend, LineChart, Line, Cell } from 'recharts';
-import { FileStack, AlarmClock, CalendarCheck, FileWarning, FileX, ClipboardX, Siren, Bot, Sparkles, ClipboardList, Award, ArrowRight } from 'lucide-react';
+import { FileStack, AlarmClock, CalendarCheck, FileWarning, FileX, ClipboardX, Siren, Bot, Sparkles, ClipboardList, Award, ArrowRight, Zap } from 'lucide-react';
 import { apiClient } from '../api/client';
 import { Stat, StageBadge, SlaPill, SeverityBadge, StatusBadge, ScoreRing, GradeBadge, fmtDate, daysUntil, getUser, Loading, STAGE_SHORT } from '../components/ui';
 
@@ -51,6 +51,22 @@ export default function Dashboard() {
         <Stat icon={ClipboardX} label="Undertakings overdue" value={k.undertakings_overdue} tone="danger" sub={`${k.undertakings_due_30} due in 30 days`} onClick={() => navigate('/compliance?tab=undertakings&filter=overdue')} />
         <Stat icon={Siren} label="Open alerts" value={k.open_alerts} tone="warning" sub={`${k.critical_alerts} critical`} onClick={() => navigate('/alerts')} />
       </div>
+
+      {d.automation && (
+        <div className="sl-card sl-mt-6 aq-automation">
+          <div className="sl-card__header"><h3 className="sl-card__title"><Zap size={14} style={{ verticalAlign: -2 }} /> Automation at work</h3><span className="sl-text-xs sl-text-muted">done by the system, with no manual follow-up</span></div>
+          <div className="sl-card__body aq-automation__row">
+            {[
+              [d.automation.alerts_raised, 'alerts raised automatically'],
+              [d.automation.auto_resolved, 'alerts that closed themselves'],
+              [d.automation.sla_breaches_flagged, 'SLA breaches flagged'],
+              [d.automation.emails_sent, 'emails sent to institutions & experts'],
+              [d.automation.documents_watched, 'documents watched for expiry'],
+              [d.automation.rules_active, 'monitoring rules running'],
+            ].map(([n, l]) => <div key={l} className="aq-automation__item"><div className="aq-automation__n">{n}</div><div className="sl-text-xs sl-text-muted">{l}</div></div>)}
+          </div>
+        </div>
+      )}
 
       <div className="aq-grid-3 sl-mt-6">
         <div className="sl-card">

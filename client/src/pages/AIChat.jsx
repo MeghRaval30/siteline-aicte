@@ -13,6 +13,20 @@ const SUGGESTIONS = [
   'List critical alerts',
 ];
 
+// The local model answers in light markdown. Render bold, bullets and headings
+// as React elements (no HTML injection), so answers never show raw ** marks.
+function RichText({ text }) {
+  return (text || '').split('\n').map((line, i) => {
+    const bullet = /^\s*([-•*]|\d+\.)\s+/.test(line);
+    const heading = /^\s*#{1,4}\s+/.test(line);
+    const body = line.replace(/^\s*[-•*]\s+/, '').replace(/^\s*#{1,4}\s+/, '');
+    const parts = body.split(/(\*\*[^*]+\*\*)/g).map((p, j) => (p.startsWith('**') && p.endsWith('**') && p.length > 4 ? <strong key={j}>{p.slice(2, -2)}</strong> : p.replace(/\*\*/g, '')));
+    if (!line.trim()) return <div key={i} style={{ height: 8 }} />;
+    if (bullet && /^\s*[-•*]/.test(line)) return <div key={i} style={{ position: 'relative', paddingLeft: 20, margin: '2px 0' }}><span style={{ position: 'absolute', left: 4, color: 'var(--sl-accent)' }}>•</span>{parts}</div>;
+    return <div key={i} style={heading ? { fontWeight: 600, marginTop: 6 } : { margin: '2px 0' }}>{parts}</div>;
+  });
+}
+
 export default function AIChat() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -74,7 +88,7 @@ export default function AIChat() {
             <div key={i} className={`sl-chat__message sl-chat__message--${msg.role === 'user' ? 'user' : 'ai'}`}>
               <div className="sl-chat__message-avatar">{msg.role === 'user' ? 'You' : 'AI'}</div>
               <div className="sl-chat__message-content">
-                <div className="sl-chat__message-bubble" style={{whiteSpace: 'pre-wrap'}}>{msg.content}</div>
+                <div className="sl-chat__message-bubble">{msg.role === 'user' ? msg.content : <RichText text={msg.content} />}</div>
                 {msg.engine && <div className="aq-engine sl-mt-1">{msg.engine === 'keyword' ? 'answered by keyword router' : `answered by ${msg.engine}`}</div>}
                 {msg.trace && msg.trace.length > 0 && (
                   <div className="sl-chat__trace">

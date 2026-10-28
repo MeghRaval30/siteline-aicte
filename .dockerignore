@@ -1,0 +1,8 @@
+**/node_modules
+client/dist
+server/.env
+server/*.db
+server/*.db-journal
+server/prisma/*.db
+server/uploads
+.git

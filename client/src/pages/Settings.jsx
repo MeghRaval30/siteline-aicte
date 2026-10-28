@@ -83,6 +83,8 @@ export default function Settings() {
               <div className="sl-sidebar__logo-icon">SL</div>
               <div><div className="sl-font-semibold">SiteLine · AICTE</div><div className="sl-text-xs sl-text-muted">Approval Workflow, Compliance Monitoring & Alerts (SIH26262)</div></div>
             </div>
+            <div className="sl-text-sm sl-mb-2"><b>Team Zenkai</b> · Pandit Deendayal Energy University (PDEU)</div>
+            <div className="sl-text-xs sl-text-muted sl-mb-4">Megh Raval · Parth Aparnathi · Rishit Salasiya · Yashasvi Shukla · Yashasvi Vanani · Hanisha Swanani</div>
             <div className="sl-text-sm sl-text-secondary sl-mb-4">Tracks every application through the APH stages with per-stage SLAs, schedules conflict-free EVC panels, monitors time-bound undertakings and document validity, and raises alerts from plain-English rules. A local AI model answers questions over live data, and a keyword fallback keeps it working offline.</div>
             {[
               { label: 'Version', value: '3.0.0-aicte' },

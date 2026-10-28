@@ -201,6 +201,12 @@ const uploadItem = (who, appId, itemId) => who.post(`/applications/${appId}/chec
   r = await admin.get('/activity-logs?search=Revoked&limit=50');
   check(r.data.length >= 1 && r.data.every(l => l.action.includes('Revoked')), 'audit trail search filters by action text');
 
+  console.log('Automation panel');
+  r = await admin.get('/dashboard/overview');
+  check(r.data.automation && r.data.automation.alerts_raised > 0 && r.data.automation.rules_active >= 10 && r.data.automation.emails_sent > 0, `automation panel reports live counts (${JSON.stringify(r.data.automation)})`);
+  r = await off.get('/dashboard/overview');
+  check(r.data.automation.alerts_raised < (await admin.get('/dashboard/overview')).data.automation.alerts_raised, 'officer automation counts are regional');
+
   console.log('Outbox');
   r = await admin.get(`/outbox?search=${encodeURIComponent(inst.user.email)}`);
   check(r.success && r.data.length > 0 && r.data.every(m => m.to_email === inst.user.email), `institution emails recorded in the outbox (${r.data.length})`);

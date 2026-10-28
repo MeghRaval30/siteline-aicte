@@ -3,6 +3,8 @@
 **Integrated AICTE Approval Workflow Automation, Compliance Monitoring and Alert Management System**
 Smart India Hackathon 2026 · Problem Statement **SIH26262** (AICTE / Ministry of Education's Innovation Cell)
 
+Built by **Team Zenkai**, Pandit Deendayal Energy University (PDEU): Megh Raval, Parth Aparnathi, Rishit Salasiya, Yashasvi Shukla, Yashasvi Vanani and Hanisha Swanani.
+
 AICTE moves applications from technical institutions through scrutiny, re-scrutiny, the Expert Visit Committee (EVC), SAC/SHC and other stages under the Approval Process Handbook (APH). Many approvals are conditional on time-bound undertakings and on keeping prescribed documents, such as lease deeds and fire NOCs, valid. Today, tracking application movement, stage-wise pendency, EVC scheduling, undertakings and document validity is manual and fragmented. SiteLine puts all of it in one live system that raises alerts by itself.
 
 ## What it does
@@ -27,6 +29,9 @@ AICTE moves applications from technical institutions through scrutiny, re-scruti
 
 ## Run it
 
+To deploy with Docker or PostgreSQL, see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). To integrate with other systems, see the REST API reference in [docs/API.md](docs/API.md).
+
+
 Requirements: Node 18+ (tested on 24). Optional: [Ollama](https://ollama.com) with `qwen2.5:7b` (or `llama3.1:8b`) for the LLM features. Without it, everything still works through the keyword fallbacks.
 
 ```bash
@@ -49,7 +54,7 @@ Continuing development on another machine or in a new AI session? Start with [`H
 
 ### Test
 ```bash
-npm run seed --prefix server && npm run e2e --prefix server   # 87 checks: lifecycle incl. document checklist, all four roles, Import Studio, security & race regressions (reseed afterwards)
+npm run seed --prefix server && npm run e2e --prefix server   # 89 checks: lifecycle incl. document checklist, all four roles, Import Studio, security & race regressions (reseed afterwards)
 ```
 
 ## Demo script (about 6 minutes)

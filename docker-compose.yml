@@ -1,0 +1,27 @@
+# docker compose up -d                → app on http://localhost:3000 (demo data on first start)
+# docker compose --profile ai up -d   → also runs a local Ollama model server (no data leaves the host)
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-string}
+      SEED_DEMO: ${SEED_DEMO:-true}
+      OLLAMA_URL: http://ollama:11434
+    volumes:
+      - siteline-data:/app/server/data
+      - siteline-uploads:/app/server/uploads
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["ai"]
+    volumes:
+      - ollama-models:/root/.ollama
+    restart: unless-stopped
+
+volumes:
+  siteline-data:
+  siteline-uploads:
+  ollama-models:

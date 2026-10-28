@@ -92,6 +92,17 @@ router.get('/overview', h(async (req, res) => {
   const longest_pending = [...active].sort((a, b) => (b.sla.days - (b.sla.sla_days || 0)) - (a.sla.days - (a.sla.sla_days || 0))).slice(0, 6)
     .map(a => ({ id: a.id, app_number: a.app_number, institution: a.institution.name, stage: a.stage, stage_label: STAGES[a.stage].label, type: a.type, sla: a.sla }));
 
+  // What the automation itself has done: the evidence behind "it remembers, so you don't".
+  const alertWhere = user.role === 'Admin' ? {} : { institution: iScope };
+  const scopedUsers = user.role === 'Admin' ? null : (await prisma.user.findMany({ where: { OR: [{ institution: iScope }, { role: 'Expert' }] }, select: { id: true } })).map(u => u.id);
+  const [alertsRaised, autoResolved, emails, rulesActive] = await Promise.all([
+    prisma.alert.count({ where: alertWhere }),
+    prisma.alert.count({ where: { ...alertWhere, status: 'Resolved', acknowledged_by: null } }),
+    prisma.outbox.count({ where: scopedUsers ? { user_id: { in: scopedUsers } } : {} }),
+    prisma.alertRule.count({ where: { active: true } }),
+  ]);
+  const automation = { alerts_raised: alertsRaised, auto_resolved: autoResolved, emails_sent: emails, sla_breaches_flagged: kpis.sla_breached, documents_watched: docs.length, rules_active: rulesActive };
+
   let compliance = null;
   if (user.role !== 'Expert') {
     const scores = await institutionScores(iScope);
@@ -111,7 +122,7 @@ router.get('/overview', h(async (req, res) => {
   }
 
   ok(res, {
-    role: user.role, kpis, pipeline, buckets, heatmap, outcomes, months, adherence, top_alerts, upcoming_visits, longest_pending, compliance, institution,
+    role: user.role, kpis, automation, pipeline, buckets, heatmap, outcomes, months, adherence, top_alerts, upcoming_visits, longest_pending, compliance, institution,
     my_applications: user.role === 'Institution' ? apps.map(({ checklist, ...a }) => ({ ...a, sla: slaInfo(a, now), stage_label: STAGES[a.stage].label, docs_missing: checklist.filter(i => i.required && i.status === 'Pending').length, docs_deficient: checklist.filter(i => i.status === 'Deficient').length })) : undefined,
     expiring_docs: docs.filter(d => ['Expiring Soon', 'Expired'].includes(d.status)).sort((a, b) => a.valid_to - b.valid_to).slice(0, 8),
     due_undertakings: undertakings.filter(u => ['Pending', 'Overdue'].includes(u.status)).sort((a, b) => a.due_date - b.due_date).slice(0, 8),

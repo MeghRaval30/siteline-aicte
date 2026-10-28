@@ -81,6 +81,7 @@ export default function Login() {
             ))}
           </div>
         </div>
+        <p className="sl-text-xs sl-text-muted sl-text-center sl-mt-4">Built by Team Zenkai · Pandit Deendayal Energy University · SIH 2026</p>
       </div>
     </div>
   );
