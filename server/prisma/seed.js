@@ -96,7 +96,7 @@ const PLAN = [['SUBMITTED', 6], ['SCRUTINY', 14], ['DEFICIENCY', 9], ['RESCRUTIN
 
 async function main() {
   console.log('Clearing database...');
-  for (const m of ['alert', 'alertRule', 'notification', 'activityLog', 'conversationSession', 'checklistItem', 'eVCMember', 'eVCVisit', 'deficiency', 'undertaking', 'complianceDocument', 'stageTransition', 'application', 'user', 'institution', 'region']) {
+  for (const m of ['stageSla', 'alert', 'alertRule', 'notification', 'activityLog', 'conversationSession', 'checklistItem', 'eVCMember', 'eVCVisit', 'deficiency', 'undertaking', 'complianceDocument', 'stageTransition', 'application', 'user', 'institution', 'region']) {
     await prisma[m].deleteMany();
   }
 

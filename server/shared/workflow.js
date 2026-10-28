@@ -107,4 +107,14 @@ function isTerminal(stage) {
 
 const ACTIVE_STAGES = Object.keys(STAGES).filter(s => !STAGES[s].terminal);
 
-module.exports = { STAGES, TRANSITIONS, MAIN_TRACK, STATUS_FOR_STAGE, ACTIVE_STAGES, slaInfo, allowedTransitions, isTerminal, daysBetween, DAY };
+// Admin-set SLAs live in the StageSla table. They are applied onto STAGES in
+// place, so every reader (dashboards, alerts, AI tools) sees the same numbers.
+const DEFAULT_SLA = Object.fromEntries(Object.entries(STAGES).map(([k, v]) => [k, v.sla_days]));
+async function loadSlaOverrides(prisma) {
+  const rows = await prisma.stageSla.findMany();
+  for (const [stage, days] of Object.entries(DEFAULT_SLA)) STAGES[stage].sla_days = days;
+  for (const r of rows) if (STAGES[r.stage] && DEFAULT_SLA[r.stage] != null) STAGES[r.stage].sla_days = r.days;
+  return rows;
+}
+
+module.exports = { STAGES, TRANSITIONS, MAIN_TRACK, STATUS_FOR_STAGE, ACTIVE_STAGES, DEFAULT_SLA, loadSlaOverrides, slaInfo, allowedTransitions, isTerminal, daysBetween, DAY };

@@ -31,6 +31,7 @@ const notificationRoutes = require('./modules/notifications/notification.routes'
 const activityLogRoutes = require('./modules/notifications/activityLog.routes');
 const aiRoutes = require('./modules/ai/ai.routes');
 const importRoutes = require('./modules/import/import.routes');
+const settingsRoutes = require('./modules/settings/settings.routes');
 const { startScheduler } = require('./modules/alerts/engine');
 
 app.use('/api/v1/auth', authRouter);
@@ -45,6 +46,7 @@ app.use('/api/v1/notifications', notificationRoutes);
 app.use('/api/v1/activity-logs', activityLogRoutes);
 app.use('/api/v1/ai', aiRoutes);
 app.use('/api/v1/import', importRoutes);
+app.use('/api/v1/settings', settingsRoutes);
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Serve the built client when present (single-port demo: npm run build in client/)
@@ -62,6 +64,7 @@ const { initializeOllama } = require('./shared/ollamaSetup');
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
   console.log(`SiteLine AICTE server running on port ${port}`);
+  require('./shared/workflow').loadSlaOverrides(require('./shared/prismaClient')).catch(e => console.error('[SLA]', e.message));
   startScheduler();
   if (process.env.AI_AUTOSTART !== 'false') initializeOllama();
 });

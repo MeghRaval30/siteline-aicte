@@ -11,7 +11,7 @@
 
 const prisma = require('../../shared/prismaClient');
 const notify = require('../../shared/notify');
-const { STAGES, ACTIVE_STAGES, slaInfo, DAY } = require('../../shared/workflow');
+const { STAGES, ACTIVE_STAGES, slaInfo, loadSlaOverrides, DAY } = require('../../shared/workflow');
 const { sweepStatuses } = require('../../shared/compliance');
 
 const TRIGGERS = {
@@ -214,6 +214,7 @@ async function runAll({ ruleId } = {}) {
   running = true;
   try {
     const now = new Date();
+    await loadSlaOverrides(prisma);
     const sweep = await sweepStatuses(now);
     const rules = await prisma.alertRule.findMany({ where: { active: true, ...(ruleId ? { id: ruleId } : {}) } });
     const results = [];

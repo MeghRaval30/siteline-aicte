@@ -126,6 +126,14 @@ model ChecklistItem {
   @@unique([application_id, item_key])
 }
 
+// Admin overrides of the default per-stage SLA (shared/workflow.js)
+model StageSla {
+  stage      String   @id
+  days       Int
+  updated_by String?
+  updated_at DateTime @updatedAt
+}
+
 model StageTransition {
   id             Int      @id @default(autoincrement())
   application_id Int

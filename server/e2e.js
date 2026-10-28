@@ -12,7 +12,7 @@ async function login(email) {
     const j = await res.json();
     return { status: res.status, ...j };
   };
-  return { user: r.data.user, token, get: u => call('GET', u), post: (u, b) => call('POST', u, b), patch: (u, b) => call('PATCH', u, b) };
+  return { user: r.data.user, token, get: u => call('GET', u), post: (u, b) => call('POST', u, b), patch: (u, b) => call('PATCH', u, b), put: (u, b) => call('PUT', u, b) };
 }
 
 const uploadItem = (who, appId, itemId) => who.post(`/applications/${appId}/checklist/${itemId}/upload`, { file_name: 'doc.pdf', file_data: Buffer.from('%PDF-1.4 e2e').toString('base64') });
@@ -200,6 +200,19 @@ const uploadItem = (who, appId, itemId) => who.post(`/applications/${appId}/chec
   check(r.data.every(l => l.actor_user_id === inst.user.id), 'an institution cannot widen its audit trail with actor_user_id');
   r = await admin.get('/activity-logs?search=Revoked&limit=50');
   check(r.data.length >= 1 && r.data.every(l => l.action.includes('Revoked')), 'audit trail search filters by action text');
+
+  console.log('Stage SLA settings');
+  r = await off.put('/settings/sla', { SCRUTINY: 60 });
+  check(r.status === 403, 'only the Approval Bureau can change SLAs');
+  const before = (await admin.get('/applications?stage=SCRUTINY&overdue=1&limit=500')).data.length;
+  r = await admin.put('/settings/sla', { SCRUTINY: 0 });
+  check(r.status === 400, 'SLA must be at least one day');
+  r = await admin.put('/settings/sla', { SCRUTINY: 60 });
+  check(r.success && r.data.stages.find(x => x.stage === 'SCRUTINY').days === 60, 'admin extends the scrutiny SLA to 60 days');
+  const after = (await admin.get('/applications?stage=SCRUTINY&overdue=1&limit=500')).data.length;
+  check(after < before || before === 0, `pendency re-evaluated against the new SLA (${before} → ${after} past SLA)`);
+  r = await admin.put('/settings/sla', { SCRUTINY: 15 });
+  check(r.success && !r.data.stages.find(x => x.stage === 'SCRUTINY').updated_by, 'setting it back to the APH default removes the override');
 
   console.log('AI');
   r = await admin.post('/ai/chat', { message: 'Which region has the most applications stuck past SLA?', fast: true });

@@ -11,7 +11,7 @@ AICTE moves applications from technical institutions through scrutiny, re-scruti
 |---|---|
 | Mandatory submission documents | Every application gets the **document checklist for its type** (affidavit, land/lease, building plan, completion certificate, fire NOC, State NOC, affiliation consent, faculty and lab lists…). Scrutiny can't start until the required items are uploaded and can't be cleared until each one is verified. Items marked deficient pre-fill the deficiency letter, and the institution re-uploads only those. |
 | Application movement through APH stages | A **workflow state machine** covering Submitted → Scrutiny → Deficiency ⇄ Re-scrutiny → EVC → Executive Committee → LoA / Conditional / LoR, with SAC appeal and SHC hearing as side tracks. Every move is role-gated and guarded (for example, an application can't reach EC until the EVC report is filed), and every move is time-stamped. |
-| Stage-wise pendency | Each stage has an **SLA**. The system shows days in stage, SLA breaches, ageing buckets, a **Regional Office × stage heatmap**, a kanban pipeline board and SLA adherence history. |
+| Stage-wise pendency | Each stage has an **SLA**, editable by the Approval Bureau in Settings, and every figure and alert re-evaluates the moment it changes. The system shows days in stage, SLA breaches, ageing buckets, a **Regional Office × stage heatmap**, a kanban pipeline board and SLA adherence history. |
 | EVC scheduling | A **smart panel builder** ranks experts and blocks anyone from the institution's home state (conflict of interest) or already on a visit that day. It prefers lighter workloads and matching specialisations. Experts file reports from their own login. |
 | Time-bound undertakings | Created when approval is granted with conditions. Institutions submit evidence, officers verify, waive or mark as breached (which puts the institution under show-cause). Overdue status is tracked automatically. |
 | Document submission, renewal and validity | Prescribed documents carry validity dates and move through Valid → Expiring Soon → Expired automatically. Institutions upload renewals with files. Once a renewal is verified, the old record is superseded and **its alerts close by themselves**. |
@@ -49,7 +49,7 @@ Continuing development on another machine or in a new AI session? Start with [`H
 
 ### Test
 ```bash
-npm run seed --prefix server && npm run e2e --prefix server   # 78 checks: lifecycle incl. document checklist, all four roles, Import Studio, security & race regressions (reseed afterwards)
+npm run seed --prefix server && npm run e2e --prefix server   # 83 checks: lifecycle incl. document checklist, all four roles, Import Studio, security & race regressions (reseed afterwards)
 ```
 
 ## Demo script (about 6 minutes)

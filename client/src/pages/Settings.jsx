@@ -1,4 +1,51 @@
-import { Settings as SettingsIcon, User, Info } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Settings as SettingsIcon, User, Info, Timer, Save, RotateCcw } from 'lucide-react';
+import { apiClient } from '../api/client';
+import { toast, fmtDate } from '../components/ui';
+
+function SlaSettings({ admin }) {
+  const [rows, setRows] = useState(null);
+  const [draft, setDraft] = useState({});
+  const [busy, setBusy] = useState(false);
+  const load = () => apiClient.get('/settings/sla').then(r => { setRows(r); setDraft(Object.fromEntries(r.map(x => [x.stage, x.days]))); }).catch(e => toast(e.message, 'error'));
+  useEffect(() => { load(); }, []);
+  if (!rows) return null;
+  const dirty = rows.some(r => Number(draft[r.stage]) !== r.days);
+  const save = async () => {
+    setBusy(true);
+    try {
+      const r = await apiClient.put('/settings/sla', Object.fromEntries(rows.map(x => [x.stage, Number(draft[x.stage])])));
+      toast(r.changed.length ? `SLAs updated (${r.changed.join(', ')}): ${r.alerts_raised} alert(s) raised, ${r.alerts_resolved} resolved` : 'No changes');
+      load();
+    } catch (e) { toast(e.message, 'error'); }
+    setBusy(false);
+  };
+  return (
+    <div className="sl-card sl-mt-6">
+      <div className="sl-card__header"><h3 className="sl-card__title"><Timer size={14} style={{ verticalAlign: -2 }} /> Stage SLAs (days)</h3>
+        {admin && <div className="sl-flex sl-gap-2">
+          <button className="sl-btn sl-btn--ghost sl-btn--sm" disabled={busy} onClick={() => setDraft(Object.fromEntries(rows.map(x => [x.stage, x.default_days])))}><RotateCcw size={14} /> APH defaults</button>
+          <button className="sl-btn sl-btn--primary sl-btn--sm" disabled={busy || !dirty} onClick={save}><Save size={14} /> Save & re-evaluate</button>
+        </div>}
+      </div>
+      <div className="sl-card__body">
+        <p className="sl-text-xs sl-text-muted sl-mb-4">Time allowed in each stage before an application counts as pending beyond SLA. Changes apply immediately to dashboards, pendency reports, the AI assistant and SLA-breach alerts.{admin ? '' : ' Only the Approval Bureau can change these.'}</p>
+        <table className="sl-table sl-table--compact">
+          <thead><tr><th>Stage</th><th>Owner</th><th style={{ width: 120 }}>SLA (days)</th><th>APH default</th><th>Last changed</th></tr></thead>
+          <tbody>{rows.map(r => (
+            <tr key={r.stage}>
+              <td className="sl-font-medium sl-text-sm">{r.label}</td>
+              <td className="sl-text-xs">{r.owner}</td>
+              <td>{admin ? <input className="sl-input" type="number" min="1" max="365" style={{ height: 30, width: 90 }} value={draft[r.stage] ?? ''} onChange={e => setDraft({ ...draft, [r.stage]: e.target.value })} aria-label={`${r.label} SLA days`} /> : <b>{r.days}</b>}</td>
+              <td className="sl-text-xs sl-text-muted">{r.default_days}{r.days !== r.default_days && <span className="sl-badge sl-badge--accent" style={{ marginLeft: 6 }}>changed</span>}</td>
+              <td className="sl-text-xs sl-text-muted">{r.updated_by ? `${r.updated_by}, ${fmtDate(r.updated_at)}` : '—'}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 
 export default function Settings() {
   const user = JSON.parse(localStorage.getItem('user') || '{}');
@@ -53,6 +100,7 @@ export default function Settings() {
           </div>
         </div>
       </div>
+      <SlaSettings admin={user.role === 'Admin'} />
     </div>
   );
 }
