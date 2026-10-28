@@ -42,7 +42,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="aq-grid-auto">
+      <div className="aq-grid-auto aq-kpis">
         <Stat icon={FileStack} label="Applications in process" value={k.active_applications} tone="accent" sub={`${k.decided_this_year} decided this year`} onClick={() => navigate('/applications?active=1')} />
         <Stat icon={AlarmClock} label="Past stage SLA" value={k.sla_breached} tone="danger" sub={`${k.active_applications ? Math.round(100 * k.sla_breached / k.active_applications) : 0}% of pipeline`} onClick={() => navigate('/applications?overdue=1')} />
         <Stat icon={CalendarCheck} label="EVC visits · next 7 days" value={k.evc_next_7_days} tone="info" sub={`${k.evc_reports_pending} reports pending`} onClick={() => navigate('/evc?filter=week')} />

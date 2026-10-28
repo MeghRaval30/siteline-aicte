@@ -21,7 +21,7 @@ AICTE moves applications from technical institutions through scrutiny, re-scruti
 - **Plain-English rules.** Type *"Warn me 90 days before any lease deed of engineering colleges in the Western region expires"* and a local LLM turns it into a validated rule. You see how many items it would match today before saving it. A keyword parser takes over if no model is running.
 - **AI assistant with tools.** It answers questions such as "which applications are stuck past SLA?" or "status of Sahyadri Institute of Technology" by calling real database tools, and shows its reasoning trace. It runs locally on Ollama, so no data leaves the server. An instant keyword router keeps it working offline. Answers respect the asker's role.
 - **Compliance Health Score.** Every institution gets a score out of 100 and a grade from A to D. Every deducted point is explained, so reviewers can sort by risk and send bulk reminder digests.
-- **Verifiable letters.** LoA and LoR letters carry a QR code and a verification code. A public `/verify` page lets anyone, such as a student, parent or bank, check that a letter is genuine.
+- **Verifiable letters.** LoA and LoR letters carry a QR code and a verification code. A public `/verify` page lets anyone, such as a student, parent or bank, check that a letter is genuine. The Approval Bureau can **revoke** a letter, after which the verify page shows it as revoked with the reason, and it flags institutions under show-cause.
 - **AI Import Studio**, ported from odoo_2026. It takes registers and document lists as desks actually keep them: title rows, abbreviated headers, mixed date formats, "MH"/"maha.", CAPS names, "540 seats", duplicates and TOTAL rows. Three voters judge every column (header text, value shape and the local AI model), and the screen shows how each one voted. Values are cleaned, missing required columns can be filled for every row (provisional IDs, a default type), re-imports update instead of duplicating, and imported validity dates raise alerts immediately. Three realistic sample files are built in.
 - **Role-scoped views.** The Approval Bureau (Admin) sees the whole country, Regional Officers see their region, EVC experts see their panels, and institutions see only themselves. Every action is written to the audit trail.
 
@@ -49,7 +49,7 @@ Continuing development on another machine or in a new AI session? Start with [`H
 
 ### Test
 ```bash
-npm run seed --prefix server && npm run e2e --prefix server   # 72 checks: lifecycle incl. document checklist, all four roles, Import Studio, security & race regressions (reseed afterwards)
+npm run seed --prefix server && npm run e2e --prefix server   # 78 checks: lifecycle incl. document checklist, all four roles, Import Studio, security & race regressions (reseed afterwards)
 ```
 
 ## Demo script (about 6 minutes)

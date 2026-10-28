@@ -188,6 +188,18 @@ const uploadItem = (who, appId, itemId) => who.post(`/applications/${appId}/chec
   check(logs.every(l => !l.action.includes('/SRO/') && !l.action.includes('/ERO/')), 'officer audit trail is regional');
   r = await fetch(`${B}/applications/verify/${letter.letter_code.toLowerCase()}`).then(x => x.json());
   check(r.data.valid, 'verification code is case-insensitive');
+  r = await off.post(`/applications/${id}/letter/revoke`, { reason: 'probe' });
+  check(r.status === 403, 'only the Approval Bureau can revoke a letter');
+  r = await admin.post(`/applications/${id}/letter/revoke`, { reason: 'Approval obtained on false lease documents' });
+  check(r.success, 'admin revokes a letter with a reason');
+  r = await fetch(`${B}/applications/verify/${letter.letter_code}`).then(x => x.json());
+  check(r.data.valid && r.data.revoked && /false lease/.test(r.data.revoke_reason), 'public verification shows the letter as revoked, with the reason');
+  r = await fetch(`${B}/auth/signup`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'x', email: 'x@y.in', password: 'password123' }) });
+  check(r.status === 403, 'self-registration is disabled');
+  r = await inst.get(`/activity-logs?actor_user_id=${admin.user.id}&limit=200`);
+  check(r.data.every(l => l.actor_user_id === inst.user.id), 'an institution cannot widen its audit trail with actor_user_id');
+  r = await admin.get('/activity-logs?search=Revoked&limit=50');
+  check(r.data.length >= 1 && r.data.every(l => l.action.includes('Revoked')), 'audit trail search filters by action text');
 
   console.log('AI');
   r = await admin.post('/ai/chat', { message: 'Which region has the most applications stuck past SLA?', fast: true });

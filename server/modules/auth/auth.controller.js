@@ -3,6 +3,8 @@ const jwt = require('jsonwebtoken');
 const prisma = require('../../shared/prismaClient');
 
 const signup = async (req, res) => {
+  // Accounts are issued by AICTE (institution users are linked to their institution); no self-registration.
+  if (process.env.ALLOW_SIGNUP !== 'true') return res.status(403).json({ success: false, error: 'Self-registration is disabled. Institution accounts are issued by AICTE.' });
   try {
     const { name, email, password } = req.body; // role is stripped by Zod validation
 

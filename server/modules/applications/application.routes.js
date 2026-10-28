@@ -35,6 +35,8 @@ router.get('/verify/:code', h(async (req, res) => {
   if (!app) return ok(res, { valid: false });
   ok(res, {
     valid: true,
+    revoked: !!app.letter_revoked_at, revoked_at: app.letter_revoked_at, revoke_reason: app.letter_revoke_reason,
+    institution_status: app.institution.status,
     app_number: app.app_number, type: app.type, academic_year: app.academic_year,
     status: app.status, stage: app.stage, decided_at: app.decided_at,
     institution: { name: app.institution.name, aicte_id: app.institution.aicte_id, city: app.institution.city, state: app.institution.state, region: app.institution.region.name },
@@ -272,6 +274,17 @@ router.patch('/:id/checklist/:itemId/review', requireRole(['Admin', 'Officer']),
 }));
 
 // ---------- letter (LoA / LoR) ----------
+router.post('/:id/letter/revoke', requireRole(['Admin']), h(async (req, res) => {
+  const app = await prisma.application.findUnique({ where: { id: Number(req.params.id) } });
+  if (!app || !app.letter_code) return fail(res, 404, 'No letter issued for this application');
+  if (app.letter_revoked_at) return fail(res, 400, 'This letter is already revoked');
+  if (!req.body.reason) return fail(res, 400, 'Give the reason for revocation (it is shown on the public verification page)');
+  const upd = await prisma.application.update({ where: { id: app.id }, data: { letter_revoked_at: new Date(), letter_revoke_reason: req.body.reason } });
+  await notifyInstitution(app.institution_id, `The letter for ${app.app_number} has been revoked: ${req.body.reason}`, app.id);
+  await logActivity({ actorUserId: req.user.id, action: `Revoked letter ${app.letter_code} (${app.app_number}): ${req.body.reason}`, entityType: 'Application', entityId: app.id });
+  ok(res, upd);
+}));
+
 router.get('/:id/letter', h(async (req, res) => {
   const app = await prisma.application.findFirst({
     where: { AND: [{ id: Number(req.params.id) }, appScope(req.user)] },

@@ -29,8 +29,11 @@ export default function Verify() {
         </form>
         {loading && <div className="sl-skeleton sl-skeleton--card" style={{ height: 120 }} />}
         {r && !loading && (r.valid ? (
-          <div className="aq-panel" style={{ borderColor: 'var(--sl-success)' }}>
-            <div className="sl-flex sl-items-center sl-gap-2 sl-mb-2 sl-text-success sl-font-semibold"><ShieldCheck size={18} /> Genuine record found</div>
+          <div className="aq-panel" style={{ borderColor: r.revoked ? 'var(--sl-danger)' : 'var(--sl-success)' }}>
+            {r.revoked
+              ? <div className="sl-mb-2 sl-text-danger sl-font-semibold"><ShieldX size={18} style={{ verticalAlign: -3 }} /> This letter was REVOKED on {fmtDate(r.revoked_at)}<div className="sl-text-sm sl-font-medium sl-mt-1">Reason: {r.revoke_reason}</div></div>
+              : <div className="sl-flex sl-items-center sl-gap-2 sl-mb-2 sl-text-success sl-font-semibold"><ShieldCheck size={18} /> Genuine record found</div>}
+            {!r.revoked && r.institution_status && r.institution_status !== 'Active' && <div className="sl-text-sm aq-tone-warning sl-mb-2">Note: the institution is currently <b>{r.institution_status}</b>.</div>}
             <dl className="aq-kv">
               <dt>Institution</dt><dd>{r.institution.name}</dd>
               <dt>AICTE ID</dt><dd>{r.institution.aicte_id}</dd>

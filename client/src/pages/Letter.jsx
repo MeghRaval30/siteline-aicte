@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import QRCode from 'qrcode';
-import { ArrowLeft, Printer } from 'lucide-react';
+import { ArrowLeft, Printer, Ban } from 'lucide-react';
 import { apiClient } from '../api/client';
-import { Loading, toast, fmtDate } from '../components/ui';
+import { Loading, toast, fmtDate, getUser } from '../components/ui';
 
 export default function Letter() {
   const { id } = useParams();
@@ -12,7 +12,13 @@ export default function Letter() {
   const [qr, setQr] = useState('');
   const verifyUrl = l ? `${window.location.origin}/verify/${l.letter_code}` : '';
 
-  useEffect(() => { apiClient.get(`/applications/${id}/letter`).then(setL).catch(e => { toast(e.message, 'error'); navigate(-1); }); }, [id]);
+  const load = () => apiClient.get(`/applications/${id}/letter`).then(setL).catch(e => { toast(e.message, 'error'); navigate(-1); });
+  useEffect(() => { load(); }, [id]);
+  const revoke = async () => {
+    const reason = window.prompt('Reason for revoking this letter (shown publicly on the verification page):');
+    if (!reason) return;
+    try { await apiClient.post(`/applications/${id}/letter/revoke`, { reason }); toast('Letter revoked; verification page updated'); load(); } catch (e) { toast(e.message, 'error'); }
+  };
   useEffect(() => { if (verifyUrl) QRCode.toDataURL(verifyUrl, { margin: 1, width: 132 }).then(setQr).catch(() => {}); }, [verifyUrl]);
   if (!l) return <Loading />;
 
@@ -24,9 +30,13 @@ export default function Letter() {
     <div>
       <div className="sl-flex sl-justify-between sl-mb-4 aq-noprint">
         <button className="sl-btn sl-btn--ghost sl-btn--sm" onClick={() => navigate(-1)}><ArrowLeft size={14} /> Back</button>
-        <button className="sl-btn sl-btn--primary" onClick={() => window.print()}><Printer size={16} /> Print / Save PDF</button>
+        <div className="sl-flex sl-gap-2">
+          {getUser().role === 'Admin' && !l.letter_revoked_at && <button className="sl-btn sl-btn--danger" onClick={revoke}><Ban size={16} /> Revoke letter</button>}
+          <button className="sl-btn sl-btn--primary" onClick={() => window.print()}><Printer size={16} /> Print / Save PDF</button>
+        </div>
       </div>
-      <div className="aq-letter">
+      {l.letter_revoked_at && <div className="aq-panel sl-mb-4 sl-text-danger aq-noprint" style={{ borderColor: 'var(--sl-danger)' }}><b>Revoked on {fmtDate(l.letter_revoked_at)}:</b> {l.letter_revoke_reason}. The public verification page shows this letter as revoked.</div>}
+      <div className="aq-letter" style={l.letter_revoked_at ? { opacity: 0.55 } : undefined}>
         <div className="aq-letter__head">
           <div>
             <div style={{ fontSize: 13, letterSpacing: 1, color: '#1e3a8a', fontWeight: 700 }}>ALL INDIA COUNCIL FOR TECHNICAL EDUCATION</div>

@@ -90,6 +90,8 @@ model Application {
   courses             String? // comma separated
   decision_remarks    String?
   letter_code         String?   @unique
+  letter_revoked_at   DateTime?
+  letter_revoke_reason String?
   rescrutiny_count    Int       @default(0)
   created_at          DateTime  @default(now())
   updated_at          DateTime  @updatedAt

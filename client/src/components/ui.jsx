@@ -124,7 +124,8 @@ export function Loading() {
 
 export function Stat({ icon: Icon, label, value, tone = 'accent', sub, onClick }) {
   return (
-    <div className={`sl-stat ${onClick ? 'sl-card--interactive' : ''}`} onClick={onClick} style={onClick ? { cursor: 'pointer' } : undefined}>
+    <div className={`sl-stat ${onClick ? 'sl-card--interactive' : ''}`} onClick={onClick} style={onClick ? { cursor: 'pointer' } : undefined}
+      {...(onClick ? { role: 'button', tabIndex: 0, onKeyDown: e => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onClick()) } : {})}>
       <div className={`sl-stat__icon sl-stat__icon--${tone}`}><Icon size={20} /></div>
       <div className="sl-stat__label">{label}</div>
       <div className="sl-stat__value">{value}</div>
