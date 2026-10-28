@@ -16,6 +16,7 @@ import Letter from './pages/Letter';
 import Verify from './pages/Verify';
 import AIChat from './pages/AIChat';
 import ActivityLogs from './pages/ActivityLogs';
+import Outbox from './pages/Outbox';
 import Settings from './pages/Settings';
 
 function PrivateRoute({ children }) {
@@ -52,6 +53,7 @@ export default function App() {
           <Route path="import" element={<Only roles={OFFICE}><ImportStudio /></Only>} />
           <Route path="ai-chat" element={<AIChat />} />
           <Route path="activity-logs" element={<Only roles={OFFICE}><ActivityLogs /></Only>} />
+          <Route path="outbox" element={<Only roles={OFFICE}><Outbox /></Only>} />
           <Route path="settings" element={<Settings />} />
         </Route>
         <Route path="*" element={<Navigate to="/dashboard" replace />} />

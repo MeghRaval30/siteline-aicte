@@ -36,7 +36,7 @@ The person you are working with is a member of the hackathon team (not necessari
    If you plan to edit the frontend a lot, run the Vite dev server instead: `npm run dev --prefix client` (http://localhost:5173, proxies /api to :3000) alongside `npm start`.
 8. **Prove it works before changing anything:** in another terminal run
    ```bash
-   npm run seed --prefix server && npm run e2e --prefix server   # expect: ALL CHECKS PASSED (83 checks)
+   npm run seed --prefix server && npm run e2e --prefix server   # expect: ALL CHECKS PASSED (87 checks)
    npm run seed --prefix server                                   # e2e mutates data — always reseed afterwards
    ```
    Then open http://localhost:3000 and sign in with the demo accounts in §3. If anything fails here, fix setup first and tell the user.
@@ -107,7 +107,7 @@ package.json                 root scripts: setup, start, seed, e2e
 README.md                    features, setup, demo script (keep it in sync)
 server/
   index.js                   mounts routers under /api/v1, serves /uploads and client/dist, starts alert scheduler
-  e2e.js                     83-check end-to-end API suite (needs a running server; mutates data)
+  e2e.js                     87-check end-to-end API suite (needs a running server; mutates data)
   prisma/schema.prisma       data model (SQLite; use `npx prisma db push`, there are no migrations)
   prisma/seed.js             demo data (see §3)
   shared/
@@ -188,7 +188,7 @@ Triggers: `DOC_EXPIRING{days,doc_type}`, `DOC_EXPIRED{doc_type}`, `UNDERTAKING_D
 
 ## 6. Current status — what works (verified 2026-10-28 21:30 IST)
 
-Everything below was clicked through in a browser as all four roles and is covered by `server/e2e.js` (83 checks, all passing):
+Everything below was clicked through in a browser as all four roles and is covered by `server/e2e.js` (87 checks, all passing):
 - Login/logout, role dashboards (Admin/Officer command centre with KPIs linking to matching lists, pendency chart with clickable bars, ageing, regional heatmap, top alerts, longest past SLA, throughput, compliance grades; Expert "my visits"; Institution home with score ring, deficiencies to answer, documents to renew, undertakings due).
 - Applications list (search, stage/region/type filters, past-SLA, CSV) and kanban pipeline board; new application with required-field validation; full lifecycle through every stage incl. deficiency loop, EVC, EC decisions, conditional approval with undertakings, rejection → one SAC appeal → SHC; LoA/LoR letter with QR + public verification (case-insensitive).
 - EVC: smart panel builder (blocks home-state experts and double-booked experts, ranks by load/specialisation, choose chair), one open visit per application, report filing by panel members.
@@ -236,7 +236,7 @@ Ask the user which of these to do; recommend in this order. For each, add e2e ch
 - UI: a "Checklist" tab on ApplicationDetail with progress bar; checklist completion % on list/board cards.
 
 **P1**
-1. **Outbox / email-SMS simulation:** `Outbox {to, channel, subject, body, status, sent_at}` written by `notify()` for institution users; Outbox page for Admin; optional real SMTP via nodemailer when `SMTP_URL` is set. Reminders and alerts then "reach" institutions outside the app.
+1. ✅ DONE (email channel; SMS and real SMTP delivery via `SMTP_URL` still open) — **Outbox / email-SMS simulation:** `Outbox {to, channel, subject, body, status, sent_at}` written by `notify()` for institution users; Outbox page for Admin; optional real SMTP via nodemailer when `SMTP_URL` is set. Reminders and alerts then "reach" institutions outside the app.
 2. ✅ DONE (Settings → Stage SLAs, `PUT /api/v1/settings/sla`, `StageSla` table; working-days option still open) — **Admin-editable SLAs:** `StageSla {stage, days, working_days_only}` overriding `STAGES[*].sla_days`; Settings page section for Admin; optional holiday list so SLA counts working days.
 3. **Structured EVC report:** checklist (land, built-up area, classrooms, labs, library, faculty, amenities) with compliant/non-compliant + remarks + photo uploads; recommendation derived/validated from it; show it on the application and letter.
 4. ✅ DONE — **Letter status on verify page:** show current institution status (e.g. "Under Show-Cause") and allow Admin to revoke a letter (`letter_revoked_at`), which the public verify page must show.

@@ -134,6 +134,22 @@ model StageSla {
   updated_at DateTime @updatedAt
 }
 
+// Messages to people outside AICTE (institutions, experts). Recorded as
+// "Simulated" when no mail server is configured.
+model Outbox {
+  id                  Int       @id @default(autoincrement())
+  user_id             Int?
+  to_name             String
+  to_email            String
+  channel             String    @default("Email")
+  subject             String
+  body                String
+  status              String    @default("Simulated") // Simulated, Sent, Failed
+  related_entity_type String?
+  related_entity_id   Int?
+  created_at          DateTime  @default(now())
+}
+
 model StageTransition {
   id             Int      @id @default(autoincrement())
   application_id Int

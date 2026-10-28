@@ -201,6 +201,16 @@ const uploadItem = (who, appId, itemId) => who.post(`/applications/${appId}/chec
   r = await admin.get('/activity-logs?search=Revoked&limit=50');
   check(r.data.length >= 1 && r.data.every(l => l.action.includes('Revoked')), 'audit trail search filters by action text');
 
+  console.log('Outbox');
+  r = await admin.get(`/outbox?search=${encodeURIComponent(inst.user.email)}`);
+  check(r.success && r.data.length > 0 && r.data.every(m => m.to_email === inst.user.email), `institution emails recorded in the outbox (${r.data.length})`);
+  check(r.data.some(m => /deficien/i.test(m.body)), 'the deficiency notice was emailed to the institution');
+  r = await inst.get('/outbox');
+  check(r.status === 403, 'institutions cannot read the outbox');
+  const allMail = (await admin.get('/outbox?limit=500')).data;
+  r = await off.get('/outbox?limit=500');
+  check(r.success && r.data.length < allMail.length, `officer outbox is limited to their region and experts (${r.data.length} of ${allMail.length})`);
+
   console.log('Stage SLA settings');
   r = await off.put('/settings/sla', { SCRUTINY: 60 });
   check(r.status === 403, 'only the Approval Bureau can change SLAs');

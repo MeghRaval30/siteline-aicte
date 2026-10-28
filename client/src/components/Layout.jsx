@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, FileStack, FileUp, CalendarCheck, ShieldCheck, Building2, Siren, BarChart3, Bot, Activity, Settings, LogOut, Bell, Search, Menu, X, ChevronDown } from 'lucide-react';
+import { Mail, LayoutDashboard, FileStack, FileUp, CalendarCheck, ShieldCheck, Building2, Siren, BarChart3, Bot, Activity, Settings, LogOut, Bell, Search, Menu, X, ChevronDown } from 'lucide-react';
 import CommandPalette from './CommandPalette';
 import ErrorBoundary from './ErrorBoundary';
 import { apiClient } from '../api/client';
@@ -30,6 +30,7 @@ const NAV_SECTIONS = [
     label: 'System',
     items: [
       { to: '/ai-chat', icon: Bot, label: 'AI Assistant', roles: ALL },
+      { to: '/outbox', icon: Mail, label: 'Outbox', roles: OFFICE },
       { to: '/activity-logs', icon: Activity, label: 'Audit Trail', roles: OFFICE },
       { to: '/settings', icon: Settings, label: 'Settings', roles: ALL },
     ]

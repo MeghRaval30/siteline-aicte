@@ -32,6 +32,7 @@ const activityLogRoutes = require('./modules/notifications/activityLog.routes');
 const aiRoutes = require('./modules/ai/ai.routes');
 const importRoutes = require('./modules/import/import.routes');
 const settingsRoutes = require('./modules/settings/settings.routes');
+const outboxRoutes = require('./modules/outbox/outbox.routes');
 const { startScheduler } = require('./modules/alerts/engine');
 
 app.use('/api/v1/auth', authRouter);
@@ -47,6 +48,7 @@ app.use('/api/v1/activity-logs', activityLogRoutes);
 app.use('/api/v1/ai', aiRoutes);
 app.use('/api/v1/import', importRoutes);
 app.use('/api/v1/settings', settingsRoutes);
+app.use('/api/v1/outbox', outboxRoutes);
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Serve the built client when present (single-port demo: npm run build in client/)

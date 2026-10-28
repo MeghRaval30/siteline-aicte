@@ -15,7 +15,7 @@ AICTE moves applications from technical institutions through scrutiny, re-scruti
 | EVC scheduling | A **smart panel builder** ranks experts and blocks anyone from the institution's home state (conflict of interest) or already on a visit that day. It prefers lighter workloads and matching specialisations. Experts file reports from their own login. |
 | Time-bound undertakings | Created when approval is granted with conditions. Institutions submit evidence, officers verify, waive or mark as breached (which puts the institution under show-cause). Overdue status is tracked automatically. |
 | Document submission, renewal and validity | Prescribed documents carry validity dates and move through Valid → Expiring Soon → Expired automatically. Institutions upload renewals with files. Once a renewal is verified, the old record is superseded and **its alerts close by themselves**. |
-| Alert management | Standing **monitoring rules**, adapted from odoo_2026's playbooks, run every 10 minutes and on demand. Each fires once per item, refreshes its wording and auto-resolves when the condition clears. Officers get one digest notification per rule run; institutions get each alert that concerns them. |
+| Alert management | Standing **monitoring rules**, adapted from odoo_2026's playbooks, run every 10 minutes and on demand. Each fires once per item, refreshes its wording and auto-resolves when the condition clears. Officers get one digest notification per rule run; institutions get each alert that concerns them, **by email too**: every message to an institution or expert is written to the **Outbox** (marked *Simulated* until a mail server is configured with `SMTP_URL`). |
 
 ### What makes it different
 - **Plain-English rules.** Type *"Warn me 90 days before any lease deed of engineering colleges in the Western region expires"* and a local LLM turns it into a validated rule. You see how many items it would match today before saving it. A keyword parser takes over if no model is running.
@@ -49,7 +49,7 @@ Continuing development on another machine or in a new AI session? Start with [`H
 
 ### Test
 ```bash
-npm run seed --prefix server && npm run e2e --prefix server   # 83 checks: lifecycle incl. document checklist, all four roles, Import Studio, security & race regressions (reseed afterwards)
+npm run seed --prefix server && npm run e2e --prefix server   # 87 checks: lifecycle incl. document checklist, all four roles, Import Studio, security & race regressions (reseed afterwards)
 ```
 
 ## Demo script (about 6 minutes)
