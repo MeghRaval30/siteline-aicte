@@ -36,6 +36,8 @@ npm start         # http://localhost:3000
 For development with hot reload, run `npm run dev --prefix server` and `npm run dev --prefix client` (the client runs on http://localhost:5173).
 Reset the demo data at any time with `npm run seed --prefix server`. All dates are relative to today, so the demo always has something expiring next week.
 
+Continuing development on another machine or in a new AI session? Start with [`HANDOFF-PROMPT.md`](HANDOFF-PROMPT.md). It covers setup, architecture, conventions, the backlog and the GitHub workflow.
+
 ### Demo logins (password `demo1234`)
 | Role | Email |
 |---|---|
