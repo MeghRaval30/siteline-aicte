@@ -54,7 +54,9 @@ const TRANSITIONS = {
     { to: 'REJECTED',   label: 'Issue LoR (Reject)',       roles: ['Admin'] },
   ],
   REJECTED: [
-    { to: 'SAC',        label: 'File Appeal to SAC',       roles: ['Institution', 'Admin'] },
+    // One appeal, within 30 days of the LoR (as the letter itself says).
+    { to: 'SAC',        label: 'File Appeal to SAC',       roles: ['Institution', 'Admin'],
+      when: app => !(app.transitions || []).some(t => t.to_stage === 'SAC') && daysBetween(app.stage_entered_at) <= 30 },
   ],
   SAC: [
     { to: 'EVC',        label: 'SAC: Order Re-Visit',      roles: ['Admin'] },

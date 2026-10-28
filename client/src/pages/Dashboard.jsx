@@ -5,6 +5,7 @@ import { FileStack, AlarmClock, CalendarCheck, FileWarning, FileX, ClipboardX, S
 import { apiClient } from '../api/client';
 import { Stat, StageBadge, SlaPill, SeverityBadge, StatusBadge, ScoreRing, GradeBadge, fmtDate, daysUntil, getUser, Loading, STAGE_SHORT } from '../components/ui';
 
+const firstName = n => (n || '').replace(/^(Dr\.|Prof\.|Smt\.|Shri|Ar\.)\s*/, '').split(' ')[0];
 const greeting = () => { const h = new Date().getHours(); return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; };
 const tip = { contentStyle: { background: '#ffffff', border: '1px solid rgba(31,30,29,0.12)', boxShadow: '0 6px 20px rgba(31,30,29,0.1)', color: '#1f1e1d', borderRadius: 8, fontSize: 12 }, cursor: { fill: 'rgba(31,30,29,0.04)' } };
 const axis = { stroke: '#84827c', fontSize: 11, tickLine: false, axisLine: false };
@@ -32,7 +33,7 @@ export default function Dashboard() {
     <div>
       <div className="sl-page__header">
         <div>
-          <h1 className="sl-page__title"><Sparkles size={26} className="aq-greeting-mark" />{greeting()}, {user.name?.replace(/^(Dr\.|Prof\.|Smt\.|Shri|Ar\.)\s*/, '').split(' ')[0]}</h1>
+          <h1 className="sl-page__title"><Sparkles size={26} className="aq-greeting-mark" />{greeting()}, {firstName(user.name)}</h1>
           <p className="sl-page__subtitle">{user.role === 'Admin' ? 'National approval command centre' : `${user.designation || 'Regional'} desk`}: live application movement, stage-wise pendency, EVC scheduling and compliance health</p>
         </div>
         <div className="sl-page__actions">
@@ -44,10 +45,10 @@ export default function Dashboard() {
       <div className="aq-grid-auto">
         <Stat icon={FileStack} label="Applications in process" value={k.active_applications} tone="accent" sub={`${k.decided_this_year} decided this year`} onClick={() => navigate('/applications?active=1')} />
         <Stat icon={AlarmClock} label="Past stage SLA" value={k.sla_breached} tone="danger" sub={`${k.active_applications ? Math.round(100 * k.sla_breached / k.active_applications) : 0}% of pipeline`} onClick={() => navigate('/applications?overdue=1')} />
-        <Stat icon={CalendarCheck} label="EVC visits · next 7 days" value={k.evc_next_7_days} tone="info" sub={`${k.evc_reports_pending} reports pending`} onClick={() => navigate('/evc')} />
+        <Stat icon={CalendarCheck} label="EVC visits · next 7 days" value={k.evc_next_7_days} tone="info" sub={`${k.evc_reports_pending} reports pending`} onClick={() => navigate('/evc?filter=week')} />
         <Stat icon={FileWarning} label="Documents expiring (60d)" value={k.docs_expiring} tone="warning" onClick={() => navigate('/compliance?status=Expiring Soon')} />
         <Stat icon={FileX} label="Documents expired" value={k.docs_expired} tone="danger" onClick={() => navigate('/compliance?status=Expired')} />
-        <Stat icon={ClipboardX} label="Undertakings overdue" value={k.undertakings_overdue} tone="danger" sub={`${k.undertakings_due_30} due in 30 days`} onClick={() => navigate('/compliance?tab=undertakings')} />
+        <Stat icon={ClipboardX} label="Undertakings overdue" value={k.undertakings_overdue} tone="danger" sub={`${k.undertakings_due_30} due in 30 days`} onClick={() => navigate('/compliance?tab=undertakings&filter=overdue')} />
         <Stat icon={Siren} label="Open alerts" value={k.open_alerts} tone="warning" sub={`${k.critical_alerts} critical`} onClick={() => navigate('/alerts')} />
       </div>
 
@@ -56,13 +57,13 @@ export default function Dashboard() {
           <div className="sl-card__header"><h3 className="sl-card__title">Stage-wise pendency</h3><span className="sl-text-xs sl-text-muted">within SLA vs breached</span></div>
           <div className="sl-card__body" style={{ height: 280 }}>
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={d.pipeline} margin={{ top: 8, right: 8, left: -18, bottom: 0 }} onClick={e => e?.activePayload && navigate(`/applications?stage=${e.activePayload[0].payload.stage}`)}>
+              <BarChart data={d.pipeline} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
                 <CartesianGrid stroke="rgba(31,30,29,0.07)" vertical={false} />
                 <XAxis dataKey="label" {...axis} />
                 <YAxis allowDecimals={false} {...axis} />
                 <Tooltip {...tip} formatter={(v, n) => [v, n === 'within' ? 'Within SLA' : 'SLA breached']} labelFormatter={(l, p) => p?.[0] ? `${p[0].payload.full_label} · SLA ${p[0].payload.sla_days}d · avg ${p[0].payload.avg_days}d` : l} />
-                <Bar dataKey="within" stackId="a" fill="#c96442" radius={[0, 0, 0, 0]} style={{ cursor: 'pointer' }} />
-                <Bar dataKey="breached" stackId="a" fill="#9b1c1c" radius={[4, 4, 0, 0]} style={{ cursor: 'pointer' }} />
+                <Bar dataKey="within" stackId="a" fill="#c96442" radius={[0, 0, 0, 0]} style={{ cursor: 'pointer' }} onClick={(_, i) => navigate(`/applications?stage=${d.pipeline[i].stage}`)} />
+                <Bar dataKey="breached" stackId="a" fill="#9b1c1c" radius={[4, 4, 0, 0]} style={{ cursor: 'pointer' }} onClick={(_, i) => navigate(`/applications?stage=${d.pipeline[i].stage}&overdue=1`)} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -120,7 +121,7 @@ export default function Dashboard() {
           <div className="sl-card__header"><h3 className="sl-card__title">Top alerts</h3><button className="sl-btn sl-btn--ghost sl-btn--sm" onClick={() => navigate('/alerts')}>Alert Center <ArrowRight size={14} /></button></div>
           <div className="sl-card__body">
             {d.top_alerts.length === 0 ? <p className="sl-text-muted sl-text-sm">No open alerts</p> : d.top_alerts.map(a => (
-              <div key={a.id} className="aq-list-item">
+              <div key={a.id} className="aq-list-item sl-cursor-pointer" onClick={() => navigate(a.entity_type === 'Application' ? `/applications/${a.entity_id}` : a.entity_type === 'Document' ? `/compliance?renew=${a.entity_id}` : a.entity_type === 'Undertaking' ? '/compliance?tab=undertakings' : a.entity_type === 'EVCVisit' ? '/evc' : '/alerts')}>
                 <div className="sl-flex sl-items-center sl-gap-2"><SeverityBadge severity={a.severity} /><span className="sl-text-sm sl-font-medium">{a.title}</span></div>
                 <div className="sl-text-xs sl-text-muted sl-mt-1">{a.detail}</div>
               </div>
@@ -185,7 +186,7 @@ export default function Dashboard() {
 function ExpertHome({ d, navigate, user }) {
   return (
     <div>
-      <div className="sl-page__header"><div><h1 className="sl-page__title"><Sparkles size={26} className="aq-greeting-mark" />{greeting()}, {user.name}</h1><p className="sl-page__subtitle">Your Expert Visit Committee assignments</p></div>
+      <div className="sl-page__header"><div><h1 className="sl-page__title"><Sparkles size={26} className="aq-greeting-mark" />{greeting()}, {firstName(user.name)}</h1><p className="sl-page__subtitle">Your Expert Visit Committee assignments</p></div>
         <div className="sl-page__actions"><button className="sl-btn sl-btn--primary" onClick={() => navigate('/evc')}><CalendarCheck size={16} /> My Visits</button></div></div>
       <div className="aq-grid-auto">
         <Stat icon={CalendarCheck} label="Upcoming visits" value={d.upcoming_visits.filter(v => new Date(v.visit_date) >= new Date()).length} tone="info" />

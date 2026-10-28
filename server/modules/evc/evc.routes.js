@@ -5,7 +5,7 @@ const requireRole = require('../../shared/requireRole');
 const notify = require('../../shared/notify');
 const logActivity = require('../../shared/logActivity');
 const { DAY } = require('../../shared/workflow');
-const { appScope, isOffice, ok, fail, h } = require('../../shared/scope');
+const { appScope, isOffice, canTouchInstitution, ok, fail, h } = require('../../shared/scope');
 
 const router = express.Router();
 router.use(authenticate);
@@ -31,7 +31,7 @@ router.get('/', h(async (req, res) => {
 // Rank experts for a visit: no conflict of interest (home state), free on the
 // date, lighter current load, and a specialisation that matches the institution.
 router.get('/suggest', requireRole(['Admin', 'Officer']), h(async (req, res) => {
-  const app = await prisma.application.findUnique({ where: { id: Number(req.query.application_id) }, include: { institution: true } });
+  const app = await prisma.application.findFirst({ where: { AND: [{ id: Number(req.query.application_id) }, appScope(req.user)] }, include: { institution: true } });
   if (!app) return fail(res, 404, 'Application not found');
   const date = req.query.date ? new Date(req.query.date) : new Date(Date.now() + 10 * DAY);
   const experts = await prisma.user.findMany({
@@ -76,9 +76,12 @@ async function conflicts({ application, date, memberIds, excludeVisitId }) {
 
 router.post('/', requireRole(['Admin', 'Officer']), h(async (req, res) => {
   const { application_id, visit_date, mode, member_ids = [], chair_id } = req.body;
-  const app = await prisma.application.findUnique({ where: { id: Number(application_id) }, include: { institution: true } });
+  const app = await prisma.application.findFirst({ where: { AND: [{ id: Number(application_id) }, appScope(req.user)] }, include: { institution: true } });
   if (!app) return fail(res, 404, 'Application not found');
   if (!visit_date) return fail(res, 400, 'Visit date required');
+  if (!['EVC', 'SCRUTINY', 'RESCRUTINY', 'SAC'].includes(app.stage)) return fail(res, 400, 'An EVC can only be scheduled while the application is in scrutiny, EVC or SAC');
+  const open = await prisma.eVCVisit.findFirst({ where: { application_id: app.id, status: 'Scheduled' } });
+  if (open) return fail(res, 409, `A visit is already scheduled for ${open.visit_date.toLocaleDateString('en-IN')}; reschedule or cancel it instead`);
   if (member_ids.length < 2) return fail(res, 400, 'An EVC panel needs at least two experts');
   if (new Date(visit_date) < dayStart(new Date())) return fail(res, 400, 'Visit date cannot be in the past');
   const ids = member_ids.map(Number);
@@ -103,6 +106,8 @@ router.post('/', requireRole(['Admin', 'Officer']), h(async (req, res) => {
 router.patch('/:id/reschedule', requireRole(['Admin', 'Officer']), h(async (req, res) => {
   const visit = await prisma.eVCVisit.findUnique({ where: { id: Number(req.params.id) }, include: { members: true, application: { include: { institution: true } } } });
   if (!visit) return fail(res, 404, 'Visit not found');
+  if (!(await canTouchInstitution(req.user, visit.application.institution_id))) return fail(res, 403, 'Outside your jurisdiction');
+  if (!req.body.visit_date || new Date(req.body.visit_date) < dayStart(new Date())) return fail(res, 400, 'Choose a future date');
   const problems = await conflicts({ application: visit.application, date: req.body.visit_date, memberIds: visit.members.map(m => m.user_id), excludeVisitId: visit.id });
   if (problems.length) return fail(res, 409, problems.join('; '));
   const upd = await prisma.eVCVisit.update({ where: { id: visit.id }, data: { visit_date: new Date(req.body.visit_date) } });
@@ -111,6 +116,8 @@ router.patch('/:id/reschedule', requireRole(['Admin', 'Officer']), h(async (req,
 }));
 
 router.patch('/:id/cancel', requireRole(['Admin', 'Officer']), h(async (req, res) => {
+  const v = await prisma.eVCVisit.findUnique({ where: { id: Number(req.params.id) }, include: { application: true } });
+  if (!v || !(await canTouchInstitution(req.user, v.application.institution_id))) return fail(res, 404, 'Visit not found');
   const upd = await prisma.eVCVisit.update({ where: { id: Number(req.params.id) }, data: { status: 'Cancelled' } });
   ok(res, upd);
 }));

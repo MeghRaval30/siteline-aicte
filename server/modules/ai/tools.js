@@ -28,6 +28,17 @@ const TOOL_FUNCTIONS = {
     }).filter(r => r.pending > 0);
   },
 
+  async pendency_by_region(args, user) {
+    const apps = await prisma.application.findMany({ where: { AND: [appScope(user), { stage: { in: ACTIVE_STAGES } }] }, include: { institution: { include: { region: true } } } });
+    const by = {};
+    for (const a of apps) {
+      const r = a.institution.region; const s = slaInfo(a);
+      by[r.code] = by[r.code] || { region: `${r.name} (${r.code})`, pending: 0, sla_breached: 0, days: 0 };
+      by[r.code].pending++; by[r.code].days += s.days; if (s.breached) by[r.code].sla_breached++;
+    }
+    return Object.values(by).map(x => ({ region: x.region, pending: x.pending, sla_breached: x.sla_breached, avg_days_in_stage: Math.round(x.days / x.pending) })).sort((a, b) => b.sla_breached - a.sla_breached || b.pending - a.pending);
+  },
+
   async list_applications(args, user) {
     const where = { AND: [appScope(user)] };
     const st = stageCode(args.stage);
@@ -117,6 +128,7 @@ const TOOL_FUNCTIONS = {
 const p = (props, required = []) => ({ type: 'object', properties: props, required });
 const TOOL_SCHEMAS = [
   { type: 'function', function: { name: 'pendency_by_stage', description: 'Stage-wise pendency: how many applications are pending at each approval stage, SLA breaches and average days', parameters: p({ region: { type: 'string', description: 'Regional office code or city, optional' } }) } },
+  { type: 'function', function: { name: 'pendency_by_region', description: 'Pending applications and SLA breaches grouped by AICTE Regional Office, worst first. Use for any question comparing regions.', parameters: p({}) } },
   { type: 'function', function: { name: 'list_applications', description: 'List applications filtered by stage, type, institution, region, SLA breach or minimum days in stage', parameters: p({ stage: { type: 'string', description: 'SCRUTINY, DEFICIENCY, RESCRUTINY, EVC, EC_REVIEW, SAC, SHC, SUBMITTED' }, type: { type: 'string' }, institution: { type: 'string' }, region: { type: 'string' }, sla_breached: { type: 'boolean' }, min_days: { type: 'integer' }, limit: { type: 'integer' } }) } },
   { type: 'function', function: { name: 'application_status', description: 'Full status and history of one application by application number or institution name', parameters: p({ query: { type: 'string' } }, ['query']) } },
   { type: 'function', function: { name: 'expiring_documents', description: 'Compliance documents (lease deed, fire NOC, etc.) expiring within N days, optionally including already expired', parameters: p({ days: { type: 'integer' }, doc_type: { type: 'string' }, region: { type: 'string' }, include_expired: { type: 'boolean' } }) } },

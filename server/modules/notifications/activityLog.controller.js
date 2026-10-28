@@ -4,6 +4,9 @@ exports.list = async (req, res) => {
   const { actor_user_id, action, date_from, date_to, page = 1, limit = 50 } = req.query;
 
   const where = {};
+  // Regional officers see actions by their own region's staff and institutions; experts and institutions see their own.
+  if (req.user.role === 'Officer' && req.user.region_id) where.actor = { OR: [{ region_id: req.user.region_id }, { institution: { region_id: req.user.region_id } }] };
+  else if (req.user.role !== 'Admin') where.actor_user_id = req.user.id;
   if (actor_user_id) where.actor_user_id = parseInt(actor_user_id, 10);
   if (action) where.action = action;
   

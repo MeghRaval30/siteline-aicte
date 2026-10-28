@@ -105,7 +105,12 @@ function autoName(p) {
   return [p.params.doc_type, base, p.criteria.region, p.criteria.institution_type].filter(Boolean).join(' · ');
 }
 
+// Is the sentence about something this system can watch at all? Keeps the
+// model from turning "make me a sandwich" into a plausible-looking rule.
+const DOMAIN = /lease|noc|fire|document|certificat|deed|affiliat|corpus|accredit|nba|naac|expir|renew|lapse|valid|undertaking|condition|deficien|visit|evc|inspection|expert|scrutiny|sla|stuck|pending|pendency|delay|late|overdue|due|stage|appeal|sac|shc|hearing|committee|application|approval|report/i;
+
 async function compile(text) {
+  if (!DOMAIN.test(text)) return { ok: false, engine: 'guard', message: 'That does not describe anything this system monitors. Mention a document, undertaking, deficiency, EVC visit or approval stage, e.g. "Warn me 45 days before any lease deed in the Southern region expires".' };
   const regions = await prisma.region.findMany();
   let engine = 'ai';
   let proposal = null;

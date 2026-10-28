@@ -5,7 +5,7 @@ const MAX_ITERATIONS = 5;
 
 const SYSTEM_PROMPT = `You are SiteLine AI, the assistant inside AICTE's approval workflow and compliance monitoring system.
 You answer questions about institution applications moving through approval stages (Submitted, Scrutiny, Deficiency, Re-Scrutiny, Expert Visit Committee (EVC), Executive Committee, SAC appeal, SHC hearing), stage-wise pendency and SLA breaches, EVC scheduling, time-bound undertakings from conditional approvals, compliance documents and their validity (lease deeds, fire NOCs, etc.), institution compliance scores and alerts.
-Always call a tool to get real data before answering. Be concise and specific: quote application numbers, institution names, dates and counts. Use short bullet lists. Never invent data.`;
+Always call a tool to get real data before answering. Use pendency_by_region for questions comparing Regional Offices and pendency_by_stage for stages; never confuse the two. If a question is not about AICTE approvals or compliance, say you can only help with those. You are read-only and cannot modify, delete or approve anything. Be concise and specific: quote application numbers, institution names, dates and counts. Use short bullet lists. Never invent data.`;
 
 // Deterministic intent router: the floor under the feature, so the assistant
 // still answers when no local model is running. It says plainly that it ran.
@@ -18,6 +18,7 @@ function route(q) {
     const name = q.replace(/.*(status of|where is|track)\s*/i, '').replace(/[?.]$/, '');
     return ['application_status', { query: name }];
   }
+  if (/region|regional office|ro|zone|which office/.test(t) && !/lease|noc|document|undertaking/.test(t)) return ['pendency_by_region', {}];
   if (/alert|critical|urgent/.test(t)) return ['open_alerts', /critical/.test(t) ? { severity: 'Critical' } : {}];
   if (/undertaking|condition/.test(t)) return ['undertakings_status', /overdue/.test(t) ? { status: 'Overdue' } : {}];
   if (/lease|noc|document|certificate|expir|validity|renew/.test(t)) {
@@ -33,13 +34,18 @@ function route(q) {
   if (/stuck|breach|sla|delay|overdue|longest/.test(t)) return ['list_applications', { sla_breached: true }];
   const stage = /re-?scrutiny/.test(t) ? 'RESCRUTINY' : /scrutiny/.test(t) ? 'SCRUTINY' : /deficien/.test(t) ? 'DEFICIENCY' : /\bsac\b|appeal/.test(t) ? 'SAC' : /\bshc\b|hearing/.test(t) ? 'SHC' : /executive|\bec\b/.test(t) ? 'EC_REVIEW' : null;
   if (stage) return ['list_applications', { stage }];
-  return ['pendency_by_stage', {}];
+  if (/pend|stage|pipeline|how many|count|status|overview|summary|backlog/.test(t)) return ['pendency_by_stage', {}];
+  return ['out_of_scope', {}];
 }
 
 function summarize(tool, r) {
   if (r?.error) return r.error;
   const lines = [];
   switch (tool) {
+    case 'pendency_by_region':
+      lines.push('Pendency by Regional Office (most SLA breaches first):');
+      r.forEach(x => lines.push(`• ${x.region}: ${x.pending} pending, ${x.sla_breached} past SLA, avg ${x.avg_days_in_stage} days in stage`));
+      break;
     case 'pendency_by_stage':
       lines.push('Stage-wise pendency right now:');
       r.forEach(x => lines.push(`• ${x.stage}: ${x.pending} pending (${x.sla_breached} past the ${x.sla_days}-day SLA), avg ${x.avg_days_in_stage} days`));
@@ -84,8 +90,11 @@ function summarize(tool, r) {
   return lines.join('\n');
 }
 
+const HELP = 'I can only answer questions about AICTE approvals and compliance, for example: pendency by stage or region, applications past SLA, the status of an application or institution, expiring documents, undertakings, EVC visits, compliance scores and alerts. I cannot change any data.';
+
 async function runOffline(userMessage, user) {
   const [tool, args] = route(userMessage);
+  if (tool === 'out_of_scope') return { answer: HELP, trace: [], engine: 'keyword' };
   const result = await TOOL_FUNCTIONS[tool](args, user);
   return { answer: summarize(tool, result), trace: [{ tool, arguments: args, result }], engine: 'keyword' };
 }

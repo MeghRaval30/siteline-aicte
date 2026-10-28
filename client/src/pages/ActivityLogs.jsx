@@ -36,7 +36,7 @@ export default function ActivityLogs() {
                 <div className="sl-timeline__content">
                   <div className="sl-timeline__title">{log.action}</div>
                   <div className="sl-text-xs sl-text-muted">
-                    {log.actor?.name || 'System'} {log.entity_type ? `· ${log.entity_type} #${log.entity_id}` : ''} · {new Date(log.created_at).toLocaleString()}
+                    {log.actor?.name || 'System'} {log.entity_type ? `· ${log.entity_type}${log.entity_id ? ` #${log.entity_id}` : ''}` : ''} · {new Date(log.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                   </div>
                 </div>
               </div>

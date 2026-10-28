@@ -141,7 +141,40 @@ async function login(email) {
   r = await off.post('/institutions/remind', { grade: 'D' });
   check(r.success, `bulk reminder to grade-D institutions (${r.data.institutions})`);
 
+  console.log('Security & integrity (review fixes)');
+  const all = await admin.get('/compliance/documents?status=Pending Verification');
+  const foreignDoc = all.data.find(d => d.institution.region.code !== 'WRO');
+  r = await off.patch(`/compliance/documents/${foreignDoc.id}/verify`, { decision: 'Rejected' });
+  check(r.status === 403, 'WRO officer cannot verify another region\'s document');
+  const foreignU = (await admin.get('/compliance/undertakings')).data.find(u => u.institution.region.code !== 'WRO');
+  r = await off.patch(`/compliance/undertakings/${foreignU.id}/review`, { decision: 'Breached' });
+  check(r.status === 403, 'WRO officer cannot breach another region\'s undertaking');
+  const foreignAlert = (await admin.get('/alerts?status=Open')).data.find(a => a.institution_id && a.institution_id !== inst.user.institution_id);
+  r = await inst.patch(`/alerts/${foreignAlert.id}/acknowledge`);
+  check(r.status === 404, 'institution cannot acknowledge another institution\'s alert');
+  r = await expert.post('/compliance/documents', { institution_id: foreignDoc.institution_id, doc_type: 'Fire Safety NOC' });
+  check(r.status === 403, 'expert cannot upload documents');
+  r = await inst.post('/compliance/documents', { doc_type: 'Fire Safety NOC', valid_from: '2026-01-01', valid_to: '2020-01-01' });
+  check(r.status === 400, 'valid-to before valid-from is rejected');
+  r = await inst.post('/applications', { type: 'New Course', courses: '' });
+  check(r.status === 400, 'New Course without a course name is rejected');
+  const race = await off.post('/applications', { type: 'Extension of Approval', institution_id: (await off.get('/institutions')).data[0].id });
+  const [t1, t2] = await Promise.all([off.post(`/applications/${race.data.id}/transition`, { to: 'SCRUTINY' }), off.post(`/applications/${race.data.id}/transition`, { to: 'SCRUTINY' })]);
+  check([t1.status, t2.status].sort().join() === '200,409', 'double-submitted transition: one succeeds, one is refused (409)');
+  const hist = (await off.get(`/applications/${race.data.id}`)).data.transitions.filter(t => t.to_stage === 'SCRUTINY');
+  check(hist.length === 1, 'only one transition recorded');
+  r = await off.post('/alerts/rules/compile', { text: 'make me a sandwich' });
+  check(r.data.ok === false, 'nonsense rule text is refused');
+  const logs = (await off.get('/activity-logs?limit=200')).data;
+  check(logs.every(l => !l.action.includes('/SRO/') && !l.action.includes('/ERO/')), 'officer audit trail is regional');
+  r = await fetch(`${B}/applications/verify/${letter.letter_code.toLowerCase()}`).then(x => x.json());
+  check(r.data.valid, 'verification code is case-insensitive');
+
   console.log('AI');
+  r = await admin.post('/ai/chat', { message: 'Which region has the most applications stuck past SLA?', fast: true });
+  check(/Regional Office/.test(r.data.answer) && r.data.trace[0].tool === 'pendency_by_region', 'region question answered from the region tool');
+  r = await admin.post('/ai/chat', { message: 'what is the capital of France?', fast: true });
+  check(/only answer questions about AICTE/.test(r.data.answer), 'off-topic question gets a scope message');
   r = await inst.post('/ai/chat', { message: 'Which applications are stuck past SLA?', fast: true });
   check(r.success && !/Tapti|Narmada/.test(r.data.answer), 'institution AI answers are scoped to its own data');
   for (const role of [admin, off, expert, inst]) {

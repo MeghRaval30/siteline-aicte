@@ -3,7 +3,13 @@ const prisma = require('../../shared/prismaClient');
 const authenticate = require('../../shared/authenticate');
 const requireRole = require('../../shared/requireRole');
 const logActivity = require('../../shared/logActivity');
-const { instScope, ok, fail, h } = require('../../shared/scope');
+const { instScope, canTouchInstitution, ok, fail, h } = require('../../shared/scope');
+
+async function scopedAlert(req, res) {
+  const a = await prisma.alert.findUnique({ where: { id: Number(req.params.id) } });
+  if (!a || (req.user.role !== 'Admin' && !(await canTouchInstitution(req.user, a.institution_id)))) { fail(res, 404, 'Alert not found'); return null; }
+  return a;
+}
 const { TRIGGERS, runAll, matches } = require('./engine');
 const { compile } = require('./compiler');
 
@@ -30,12 +36,14 @@ router.get('/', h(async (req, res) => {
 }));
 
 router.patch('/:id/acknowledge', h(async (req, res) => {
+  if (!(await scopedAlert(req, res))) return;
   const a = await prisma.alert.update({ where: { id: Number(req.params.id) }, data: { status: 'Acknowledged', acknowledged_by: req.user.name, acknowledged_at: new Date() } });
   await logActivity({ actorUserId: req.user.id, action: `Acknowledged alert: ${a.title}`, entityType: 'Alert', entityId: a.id });
   ok(res, a);
 }));
 
 router.patch('/:id/resolve', requireRole(['Admin', 'Officer']), h(async (req, res) => {
+  if (!(await scopedAlert(req, res))) return;
   const a = await prisma.alert.update({ where: { id: Number(req.params.id) }, data: { status: 'Resolved', resolved_at: new Date(), acknowledged_by: req.user.name } });
   ok(res, a);
 }));
@@ -61,6 +69,11 @@ router.post('/rules/compile', requireRole(['Admin', 'Officer']), h(async (req, r
 router.post('/rules', requireRole(['Admin', 'Officer']), h(async (req, res) => {
   const { name, trigger, params = {}, criteria = {}, severity = 'Medium', notify_roles = 'Admin,Officer', notify_institution = true, nl_prompt } = req.body;
   if (!TRIGGERS[trigger]) return fail(res, 400, 'Unknown trigger');
+  // A Regional Officer's rule watches their own region only.
+  if (req.user.role === 'Officer' && req.user.region_id) {
+    const region = await prisma.region.findUnique({ where: { id: req.user.region_id } });
+    criteria.region = region.code;
+  }
   const rule = await prisma.alertRule.create({ data: { name: name || TRIGGERS[trigger].label, trigger, params: JSON.stringify(params), criteria: JSON.stringify(criteria), severity, notify_roles, notify_institution, nl_prompt: nl_prompt || null } });
   await logActivity({ actorUserId: req.user.id, action: `Created alert rule "${rule.name}"`, entityType: 'AlertRule', entityId: rule.id });
   const run = await runAll({ ruleId: rule.id });
@@ -68,6 +81,12 @@ router.post('/rules', requireRole(['Admin', 'Officer']), h(async (req, res) => {
 }));
 
 router.patch('/rules/:id', requireRole(['Admin', 'Officer']), h(async (req, res) => {
+  const existing = await prisma.alertRule.findUnique({ where: { id: Number(req.params.id) } });
+  if (!existing) return fail(res, 404, 'Rule not found');
+  if (req.user.role !== 'Admin') {
+    const region = req.user.region_id ? (await prisma.region.findUnique({ where: { id: req.user.region_id } })).code : null;
+    if (JSON.parse(existing.criteria || '{}').region !== region) return fail(res, 403, 'Only the Approval Bureau can change national rules');
+  }
   const data = {};
   for (const k of ['name', 'severity', 'active', 'notify_roles', 'notify_institution']) if (req.body[k] !== undefined) data[k] = req.body[k];
   if (req.body.params) data.params = JSON.stringify(req.body.params);

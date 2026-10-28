@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { ArrowLeft, FileText, Plus, Trash2, CalendarPlus, ClipboardEdit, Check, X, Building2, UserCog, AlertTriangle } from 'lucide-react';
 import { apiClient } from '../api/client';
@@ -79,6 +79,8 @@ export default function ApplicationDetail() {
               <div><div className="sl-text-xs sl-text-muted">Current stage</div><StageBadge stage={app.stage} label={app.stage_label} /></div>
               <div><div className="sl-text-xs sl-text-muted">Time in stage</div><SlaPill sla={app.sla} /></div>
               <div><div className="sl-text-xs sl-text-muted">Submitted</div><div className="sl-text-sm">{fmtDate(app.submitted_at)}</div></div>
+              {app.intake_requested != null && <div><div className="sl-text-xs sl-text-muted">Intake requested</div><div className="sl-text-sm">{app.intake_requested}</div></div>}
+              {app.courses && <div><div className="sl-text-xs sl-text-muted">Course(s)</div><div className="sl-text-sm">{app.courses}</div></div>}
               {app.rescrutiny_count > 0 && <div><div className="sl-text-xs sl-text-muted">Re-scrutiny rounds</div><div className="sl-text-sm">{app.rescrutiny_count}</div></div>}
               <div>
                 <div className="sl-text-xs sl-text-muted"><UserCog size={11} style={{ verticalAlign: -1 }} /> Assigned officer</div>
@@ -251,14 +253,18 @@ function TransitionModal({ app, move, meta, onClose, onDone }) {
   const [unds, setUnds] = useState(move.to === 'CONDITIONAL' ? [{ category: 'Lease Renewal', title: 'Renew land lease deed and submit registered copy', due_date: in6m }] : []);
   const [busy, setBusy] = useState(false);
   const needsRemarks = ['REJECTED', 'CONDITIONAL'].includes(move.to);
+  const inflight = useRef(false);
 
   const submit = async () => {
+    if (inflight.current) return;
+    inflight.current = true;
     setBusy(true);
     try {
       await apiClient.post(`/applications/${app.id}/transition`, { to: move.to, remarks, deficiencies: defs.filter(d => d.description), undertakings: unds.filter(u => u.title && u.due_date) });
       toast(`${app.app_number} moved to ${STAGE_SHORT[move.to]}`);
       onDone();
     } catch (e) { toast(e.message, 'error'); }
+    inflight.current = false;
     setBusy(false);
   };
 

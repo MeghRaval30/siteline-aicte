@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Sparkles, ShieldAlert, Crown } from 'lucide-react';
 import { apiClient } from '../api/client';
 import { Modal, toast } from './ui';
@@ -14,6 +14,7 @@ export function ScheduleEvcModal({ application, onClose, onDone }) {
   const [chosen, setChosen] = useState([]);
   const [chair, setChair] = useState(null);
   const [busy, setBusy] = useState(false);
+  const inflight = useRef(false);
 
   useEffect(() => {
     setData(null);
@@ -30,12 +31,15 @@ export function ScheduleEvcModal({ application, onClose, onDone }) {
   };
 
   const submit = async () => {
+    if (inflight.current) return;
+    inflight.current = true;
     setBusy(true);
     try {
       await apiClient.post('/evc', { application_id: application.id, visit_date: date, mode, member_ids: chosen, chair_id: chair });
       toast('EVC visit scheduled; panel and institution notified');
       onDone();
     } catch (e) { toast(e.message, 'error'); }
+    inflight.current = false;
     setBusy(false);
   };
 

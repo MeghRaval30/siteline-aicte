@@ -46,7 +46,7 @@ Reset the demo data at any time with `npm run seed --prefix server`. All dates a
 
 ### Test
 ```bash
-npm run seed --prefix server && npm run e2e --prefix server   # 48 checks: full lifecycle, all four roles, Import Studio (reseed afterwards)
+npm run seed --prefix server && npm run e2e --prefix server   # 61 checks: lifecycle, all four roles, Import Studio, security & race regressions (reseed afterwards)
 ```
 
 ## Demo script (about 6 minutes)

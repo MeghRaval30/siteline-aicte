@@ -23,6 +23,15 @@ function instScope(user) {
 
 const isOffice = user => user.role === 'Admin' || user.role === 'Officer';
 
+// Guard for writes on a record that belongs to an institution: the same rules
+// as instScope, checked against one id. Every mutating route calls this.
+async function canTouchInstitution(user, institutionId) {
+  if (!institutionId) return user.role === 'Admin';
+  const prisma = require('./prismaClient');
+  const hit = await prisma.institution.findFirst({ where: { AND: [{ id: Number(institutionId) }, instScope(user)] }, select: { id: true } });
+  return !!hit;
+}
+
 const ok = (res, data, extra = {}) => res.json({ success: true, data, ...extra });
 const fail = (res, status, message) => res.status(status).json({ success: false, error: message });
 
@@ -32,4 +41,4 @@ const h = fn => (req, res) => Promise.resolve(fn(req, res)).catch(err => {
   fail(res, 500, err.message || 'Internal error');
 });
 
-module.exports = { appScope, instScope, isOffice, ok, fail, h };
+module.exports = { appScope, instScope, isOffice, canTouchInstitution, ok, fail, h };

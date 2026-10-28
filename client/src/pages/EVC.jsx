@@ -11,7 +11,7 @@ export default function EVC() {
   const [params, setParams] = useSearchParams();
   const [visits, setVisits] = useState(null);
   const [awaiting, setAwaiting] = useState([]);
-  const [filter, setFilter] = useState('upcoming');
+  const [filter, setFilter] = useState(params.get('filter') === 'week' ? 'week' : 'upcoming');
   const [modal, setModal] = useState(null);
 
   const load = () => {
@@ -30,7 +30,8 @@ export default function EVC() {
   const overdue = visits.filter(v => v.status === 'Scheduled' && new Date(v.visit_date) < new Date(now.toDateString()));
   const completed = visits.filter(v => v.status === 'Completed').reverse();
   const unscheduled = awaiting.filter(a => !visits.some(v => v.application_id === a.id && ['Scheduled', 'Completed'].includes(v.status)));
-  const list = { upcoming, overdue, completed, all: [...visits].reverse() }[filter];
+  const week = upcoming.filter(v => new Date(v.visit_date) <= new Date(Date.now() + 7 * 86400000));
+  const list = { upcoming, week, overdue, completed, all: [...visits].reverse() }[filter];
   const done = () => { setModal(null); setParams({}); load(); };
 
   return (
@@ -62,7 +63,7 @@ export default function EVC() {
       )}
 
       <div className="sl-filters sl-mb-4">
-        {[['upcoming', 'Upcoming'], ['overdue', 'Report overdue'], ['completed', 'Completed'], ['all', 'All']].map(([k, l]) => (
+        {[['week', 'Next 7 days'], ['upcoming', 'Upcoming'], ['overdue', 'Report overdue'], ['completed', 'Completed'], ['all', 'All']].map(([k, l]) => (
           <button key={k} className={`sl-filter-chip ${filter === k ? 'active' : ''}`} onClick={() => setFilter(k)}>{l}</button>
         ))}
       </div>

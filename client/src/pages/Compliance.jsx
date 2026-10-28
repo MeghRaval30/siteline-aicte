@@ -20,7 +20,7 @@ export default function Compliance() {
         <button className={`sl-tab ${tab === 'documents' ? 'active' : ''}`} onClick={() => setTab('documents')}>Document validity</button>
         <button className={`sl-tab ${tab === 'undertakings' ? 'active' : ''}`} onClick={() => setTab('undertakings')}>Undertakings</button>
       </div>
-      {tab === 'documents' ? <Documents user={user} params={params} setParams={setParams} /> : <Undertakings user={user} />}
+      {tab === 'documents' ? <Documents user={user} params={params} setParams={setParams} /> : <Undertakings user={user} initial={params.get('filter')} />}
     </div>
   );
 }
@@ -96,7 +96,7 @@ function Documents({ user, params, setParams }) {
                   <td><StatusBadge status={d.status} />{d.file_url && <div><a className="sl-text-xs sl-text-accent" href={d.file_url} target="_blank" rel="noreferrer">view file</a></div>}</td>
                   <td className="sl-text-right sl-whitespace-nowrap">
                     {isOffice(user) && d.status === 'Pending Verification' && <><button className="sl-btn sl-btn--primary sl-btn--sm" onClick={() => verify(d, 'Valid')}><Check size={14} /> Verify</button> <button className="sl-btn sl-btn--ghost sl-btn--sm" onClick={() => verify(d, 'Rejected')}><X size={14} /></button></>}
-                    {['Expiring Soon', 'Expired'].includes(d.status) && <button className="sl-btn sl-btn--secondary sl-btn--sm" onClick={() => setModal({ kind: 'renew', d })}>Renew</button>}
+                    {['Expiring Soon', 'Expired'].includes(d.status) && (d.renewal_pending ? <span className="sl-badge sl-badge--info">Renewal under verification</span> : <button className="sl-btn sl-btn--secondary sl-btn--sm" onClick={() => setModal({ kind: 'renew', d })}>Renew</button>)}
                   </td>
                 </tr>
               ))}
@@ -110,10 +110,10 @@ function Documents({ user, params, setParams }) {
   );
 }
 
-function Undertakings({ user }) {
+function Undertakings({ user, initial }) {
   const navigate = useNavigate();
   const [rows, setRows] = useState(null);
-  const [filter, setFilter] = useState('open');
+  const [filter, setFilter] = useState(['open', 'overdue', 'submitted', 'closed'].includes(initial) ? initial : 'open');
   const [modal, setModal] = useState(null);
   const load = () => apiClient.get('/compliance/undertakings').then(setRows).catch(e => toast(e.message, 'error'));
   useEffect(() => { load(); }, []);

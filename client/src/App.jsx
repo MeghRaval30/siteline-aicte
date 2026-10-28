@@ -23,6 +23,13 @@ function PrivateRoute({ children }) {
   return token ? children : <Navigate to="/login" replace />;
 }
 
+const OFFICE = ['Admin', 'Officer'];
+function Only({ roles, children }) {
+  let role;
+  try { role = JSON.parse(localStorage.getItem('user') || '{}').role; } catch { role = null; }
+  return roles.includes(role) ? children : <Navigate to="/dashboard" replace />;
+}
+
 export default function App() {
   return (
     <>
@@ -36,15 +43,15 @@ export default function App() {
           <Route path="applications" element={<Applications />} />
           <Route path="applications/:id" element={<ApplicationDetail />} />
           <Route path="applications/:id/letter" element={<Letter />} />
-          <Route path="evc" element={<EVC />} />
-          <Route path="compliance" element={<Compliance />} />
-          <Route path="institutions" element={<Institutions />} />
-          <Route path="institutions/:id" element={<InstitutionDetail />} />
-          <Route path="alerts" element={<Alerts />} />
-          <Route path="reports" element={<Reports />} />
-          <Route path="import" element={<ImportStudio />} />
+          <Route path="evc" element={<Only roles={[...OFFICE, 'Expert']}><EVC /></Only>} />
+          <Route path="compliance" element={<Only roles={[...OFFICE, 'Institution']}><Compliance /></Only>} />
+          <Route path="institutions" element={<Only roles={OFFICE}><Institutions /></Only>} />
+          <Route path="institutions/:id" element={<Only roles={OFFICE}><InstitutionDetail /></Only>} />
+          <Route path="alerts" element={<Only roles={[...OFFICE, 'Institution']}><Alerts /></Only>} />
+          <Route path="reports" element={<Only roles={OFFICE}><Reports /></Only>} />
+          <Route path="import" element={<Only roles={OFFICE}><ImportStudio /></Only>} />
           <Route path="ai-chat" element={<AIChat />} />
-          <Route path="activity-logs" element={<ActivityLogs />} />
+          <Route path="activity-logs" element={<Only roles={OFFICE}><ActivityLogs /></Only>} />
           <Route path="settings" element={<Settings />} />
         </Route>
         <Route path="*" element={<Navigate to="/dashboard" replace />} />

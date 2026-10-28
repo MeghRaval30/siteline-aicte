@@ -165,7 +165,9 @@ async function runRule(rule, now = new Date()) {
     const prior = byEntity.get(h.entity_id);
     if (prior) {
       // Keep the wording fresh ("expires in 12 days" -> "in 11 days"); reopen if it came back.
-      await prisma.alert.update({ where: { id: prior.id }, data: { title: h.title, detail: h.detail, ...(prior.status === 'Resolved' ? { status: 'Open', resolved_at: null, fired_at: now } : {}) } });
+      // Reopen only what the engine itself closed; a person's "resolved" stands.
+      const reopen = prior.status === 'Resolved' && !prior.acknowledged_by;
+      await prisma.alert.update({ where: { id: prior.id }, data: { title: h.title, detail: h.detail, ...(reopen ? { status: 'Open', resolved_at: null, fired_at: now } : {}) } });
       continue;
     }
     const alert = await prisma.alert.create({

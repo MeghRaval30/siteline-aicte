@@ -135,7 +135,8 @@ export function Stat({ icon: Icon, label, value, tone = 'accent', sub, onClick }
 export function downloadCsv(filename, rows) {
   if (!rows.length) return;
   const cols = Object.keys(rows[0]);
-  const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  // A leading = + - @ would run as a formula in Excel (CSV injection); prefix with a quote.
+  const esc = v => { let s = String(v ?? ''); if (/^[=+\-@\t\r]/.test(s) && !/^-?\d/.test(s)) s = `'${s}`; return `"${s.replace(/"/g, '""')}"`; };
   const csv = [cols.join(','), ...rows.map(r => cols.map(c => esc(r[c])).join(','))].join('\n');
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, LayoutDashboard, FileStack, CalendarCheck, ShieldCheck, Building2, Siren, BarChart3, Bot, Activity, Settings, Plus, ShieldQuestion } from 'lucide-react';
+import { Search, LayoutDashboard, FileStack, CalendarCheck, ShieldCheck, Building2, Siren, BarChart3, Bot, Activity, Settings, Plus, ShieldQuestion, X, FileUp } from 'lucide-react';
 import { apiClient } from '../api/client';
 
 const PAGES = [
@@ -14,7 +14,7 @@ const PAGES = [
   { label: 'Undertakings', to: '/compliance?tab=undertakings', icon: ShieldCheck },
   { label: 'Institutions', to: '/institutions', icon: Building2 },
   { label: 'Alert Center', to: '/alerts', icon: Siren },
-  { label: 'Import Studio (bulk Excel/CSV)', to: '/import', icon: Building2 },
+  { label: 'Import Studio (bulk Excel/CSV)', to: '/import', icon: FileUp },
   { label: 'Reports', to: '/reports', icon: BarChart3 },
   { label: 'AI Assistant', to: '/ai-chat', icon: Bot },
   { label: 'Audit Trail', to: '/activity-logs', icon: Activity },
@@ -38,16 +38,21 @@ export default function CommandPalette({ onClose }) {
 
   useEffect(() => {
     if (query.length >= 2) {
-      apiClient.get(`/applications?search=${encodeURIComponent(query)}&limit=6`).then(d => {
-        setAssets(Array.isArray(d) ? d : []);
-      }).catch(() => setAssets([]));
+      const role = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}').role; } catch { return null; } })();
+      Promise.all([
+        apiClient.get(`/applications?search=${encodeURIComponent(query)}&limit=5`).catch(() => []),
+        ['Admin', 'Officer'].includes(role) ? apiClient.get(`/institutions?search=${encodeURIComponent(query)}`).catch(() => []) : Promise.resolve([]),
+      ]).then(([apps, insts]) => setAssets([
+        ...(Array.isArray(apps) ? apps : []),
+        ...(Array.isArray(insts) ? insts.slice(0, 4).map(i => ({ id: `i${i.id}`, _inst: i.id, institution: { name: i.name }, app_number: i.aicte_id, stage_label: `Institution · grade ${i.grade}` })) : []),
+      ]));
     } else { setAssets([]); }
   }, [query]);
 
   const filteredPages = PAGES.filter(p => p.label.toLowerCase().includes(query.toLowerCase()));
   const allItems = [
     ...filteredPages.map(p => ({ ...p, type: 'page' })),
-    ...assets.map(a => ({ label: `${a.institution?.name} · ${a.app_number}`, to: `/applications/${a.id}`, icon: FileStack, type: 'asset' })),
+    ...assets.map(a => ({ label: `${a.institution?.name} · ${a.app_number}`, to: a._inst ? `/institutions/${a._inst}` : `/applications/${a.id}`, icon: a._inst ? Building2 : FileStack, type: 'asset' })),
     ...(query.length === 0 ? ACTIONS.map(a => ({ ...a, type: 'action' })) : []),
   ];
 
@@ -79,11 +84,11 @@ export default function CommandPalette({ onClose }) {
               <div className="sl-command__item-text"><div className="sl-command__item-title">{item.label}</div></div>
             </div>
           ))}
-          {assets.length > 0 && <div className="sl-command__group-label">Applications</div>}
+          {assets.length > 0 && <div className="sl-command__group-label">Applications & institutions</div>}
           {assets.map((a, i) => {
             const idx = filteredPages.length + i;
             return (
-              <div key={a.id} className={`sl-command__item ${selectedIndex === idx ? 'active' : ''}`} onClick={() => handleSelect({ to: `/applications/${a.id}` })}>
+              <div key={a.id} className={`sl-command__item ${selectedIndex === idx ? 'active' : ''}`} onClick={() => handleSelect({ to: a._inst ? `/institutions/${a._inst}` : `/applications/${a.id}` })}>
                 <div className="sl-command__item-icon"><FileStack size={16} /></div>
                 <div className="sl-command__item-text">
                   <div className="sl-command__item-title">{a.institution?.name}</div>

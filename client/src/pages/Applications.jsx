@@ -147,8 +147,10 @@ function NewApplication({ meta, user, onClose, onCreated }) {
     setBusy(false);
   };
   const f = (k, v) => setForm({ ...form, [k]: v });
+  const needIntake = ['Increase in Intake', 'New Institution'].includes(form.type), needCourses = ['New Course', 'New Institution'].includes(form.type);
+  const invalid = (isOffice(user) && !form.institution_id) || (needIntake && !(Number(form.intake_requested) > 0)) || (needCourses && !form.courses.trim());
   return (
-    <Modal title="New application" onClose={onClose} footer={<><button className="sl-btn sl-btn--secondary" onClick={onClose}>Cancel</button><button className="sl-btn sl-btn--primary" disabled={busy || (isOffice(user) && !form.institution_id)} onClick={submit}>Submit to AICTE</button></>}>
+    <Modal title="New application" onClose={onClose} footer={<><button className="sl-btn sl-btn--secondary" onClick={onClose}>Cancel</button><button className="sl-btn sl-btn--primary" disabled={busy || invalid} onClick={submit}>Submit to AICTE</button></>}>
       {isOffice(user) && (
         <div className="sl-form-group sl-mb-4"><label className="sl-label">Institution *</label>
           <select className="sl-select" value={form.institution_id} onChange={e => f('institution_id', e.target.value)}>
@@ -161,8 +163,8 @@ function NewApplication({ meta, user, onClose, onCreated }) {
         <div className="sl-form-group"><label className="sl-label">Academic year</label>
           <select className="sl-select" value={form.academic_year} onChange={e => f('academic_year', e.target.value)}><option>2027-28</option><option>2028-29</option></select></div>
       </div>
-      {['Increase in Intake', 'New Institution'].includes(form.type) && <div className="sl-form-group sl-mb-4"><label className="sl-label">Intake requested</label><input className="sl-input" type="number" value={form.intake_requested} onChange={e => f('intake_requested', e.target.value)} /></div>}
-      {['New Course', 'New Institution'].includes(form.type) && <div className="sl-form-group sl-mb-4"><label className="sl-label">Courses</label><input className="sl-input" placeholder="e.g. B.Tech CSE (AI & ML)" value={form.courses} onChange={e => f('courses', e.target.value)} /></div>}
+      {['Increase in Intake', 'New Institution'].includes(form.type) && <div className="sl-form-group sl-mb-4"><label className="sl-label">Intake requested *</label><input className="sl-input" type="number" min="1" step="1" value={form.intake_requested} onChange={e => f('intake_requested', e.target.value)} /></div>}
+      {['New Course', 'New Institution'].includes(form.type) && <div className="sl-form-group sl-mb-4"><label className="sl-label">Course(s) *</label><input className="sl-input" placeholder="e.g. B.Tech CSE (AI & ML)" value={form.courses} onChange={e => f('courses', e.target.value)} /></div>}
       {isOffice(user) && <div className="sl-form-group"><label className="sl-label">Priority</label><select className="sl-select" value={form.priority} onChange={e => f('priority', e.target.value)}><option>Normal</option><option>High</option><option>Court-Directed</option></select></div>}
       <p className="sl-text-xs sl-text-muted sl-mt-4">The application enters the Submitted stage and is routed to the Regional Office scrutiny desk. Each stage carries an SLA; delays are tracked and alerted automatically.</p>
     </Modal>

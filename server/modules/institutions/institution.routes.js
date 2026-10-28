@@ -56,15 +56,17 @@ router.post('/remind', requireRole(['Admin', 'Officer']), h(async (req, res) => 
   const where = ids.length ? { id: { in: ids } } : req.body.grade ? {} : { id: -1 };
   let rows = await institutionScores({ AND: [where, instScope(req.user)] });
   if (req.body.grade) rows = rows.filter(r => r.grade === req.body.grade);
-  let sent = 0;
+  let sent = 0, reached = 0, clean = 0, noUsers = 0;
   for (const r of rows) {
-    if (!r.reasons.length) continue;
+    if (!r.reasons.length) { clean++; continue; }
     const users = await prisma.user.findMany({ where: { institution_id: r.inst.id } });
+    if (!users.length) { noUsers++; continue; }
+    reached++;
     const msg = `Compliance reminder from AICTE (score ${r.score}/100, grade ${r.grade}): ${r.reasons.slice(0, 3).map(x => x.reason).join('; ')}`;
     for (const u of users) { await notify({ userId: u.id, type: 'REMINDER', message: msg, relatedEntityType: 'Institution', relatedEntityId: r.inst.id }); sent++; }
   }
   await logActivity({ actorUserId: req.user.id, action: `Sent compliance reminders to ${rows.length} institution(s)`, entityType: 'Institution' });
-  ok(res, { institutions: rows.length, notifications: sent });
+  ok(res, { institutions: reached, notifications: sent, skipped_clean: clean, no_portal_users: noUsers });
 }));
 
 module.exports = router;

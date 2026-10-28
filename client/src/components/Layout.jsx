@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { LayoutDashboard, FileStack, FileUp, CalendarCheck, ShieldCheck, Building2, Siren, BarChart3, Bot, Activity, Settings, LogOut, Bell, Search, Menu, X, ChevronDown } from 'lucide-react';
 import CommandPalette from './CommandPalette';
+import ErrorBoundary from './ErrorBoundary';
 import { apiClient } from '../api/client';
 
 const ALL = ['Admin', 'Officer', 'Expert', 'Institution'];
@@ -164,7 +165,7 @@ export default function Layout() {
                     {notifications.length === 0 ? (
                       <div className="sl-p-5 sl-text-center sl-text-muted sl-text-sm">No notifications</div>
                     ) : notifications.map(n => (
-                      <div key={n.id} className={`sl-notif-item ${!n.is_read ? 'sl-notif-item--unread' : ''}`} style={{ cursor: n.related_entity_type === 'Application' ? 'pointer' : undefined }} onClick={() => { if (n.related_entity_type === 'Application') { navigate(`/applications/${n.related_entity_id}`); setNotifOpen(false); } }}>
+                      <div key={n.id} className={`sl-notif-item ${!n.is_read ? 'sl-notif-item--unread' : ''}`} style={{ cursor: 'pointer' }} onClick={() => { const t = n.related_entity_type, id = n.related_entity_id; const to = t === 'Application' ? `/applications/${id}` : t === 'Document' ? (user.role === 'Expert' ? '/dashboard' : `/compliance?renew=${id}`) : t === 'Undertaking' ? '/compliance?tab=undertakings' : t === 'EVCVisit' ? '/evc' : t === 'Institution' ? (user.role === 'Institution' ? '/dashboard' : `/institutions/${id}`) : n.type === 'ALERT' ? '/alerts' : '/dashboard'; navigate(to); setNotifOpen(false); if (!n.is_read) apiClient.patch(`/notifications/${n.id}/read`).catch(() => {}); }}>
                         <div className="sl-notif-item__content">
                           <div className="sl-notif-item__message">{n.message}</div>
                           <div className="sl-notif-item__time">{n.type} · {new Date(n.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
@@ -203,11 +204,11 @@ export default function Layout() {
         </header>
 
         <main className="sl-page">
-          <Outlet />
+          <ErrorBoundary resetKey={location.pathname}><Outlet /></ErrorBoundary>
         </main>
       </div>
 
-      {commandOpen && <CommandPalette onClose={() => setCommandOpen(false)} />}
+      {commandOpen && <ErrorBoundary resetKey={location.pathname}><CommandPalette onClose={() => setCommandOpen(false)} /></ErrorBoundary>}
 
       <style>{`
         @media (max-width: 768px) {

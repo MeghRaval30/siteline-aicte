@@ -19,7 +19,7 @@ export default function InstitutionDetail() {
   if (!inst) return <Loading />;
   const c = inst.compliance;
   const remind = async () => {
-    try { await apiClient.post('/institutions/remind', { ids: [inst.id] }); toast('Compliance digest sent to the institution'); } catch (e) { toast(e.message, 'error'); }
+    try { const r = await apiClient.post('/institutions/remind', { ids: [inst.id] }); toast(r.institutions ? `Digest sent to ${r.notifications} user(s)` : r.no_portal_users ? 'This institution has no portal users to notify yet' : 'Nothing to remind: fully compliant', r.institutions ? 'success' : 'warning'); } catch (e) { toast(e.message, 'error'); }
   };
 
   return (

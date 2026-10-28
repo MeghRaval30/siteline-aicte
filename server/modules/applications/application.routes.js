@@ -6,7 +6,7 @@ const requireRole = require('../../shared/requireRole');
 const notify = require('../../shared/notify');
 const logActivity = require('../../shared/logActivity');
 const { STAGES, TRANSITIONS, MAIN_TRACK, STATUS_FOR_STAGE, slaInfo, allowedTransitions, isTerminal, daysBetween, DAY } = require('../../shared/workflow');
-const { appScope, isOffice, ok, fail, h } = require('../../shared/scope');
+const { appScope, isOffice, canTouchInstitution, ok, fail, h } = require('../../shared/scope');
 
 const router = express.Router();
 
@@ -24,7 +24,7 @@ async function notifyInstitution(institutionId, message, appId) {
 // ---------- public verification of an issued letter ----------
 router.get('/verify/:code', h(async (req, res) => {
   const app = await prisma.application.findUnique({
-    where: { letter_code: req.params.code },
+    where: { letter_code: String(req.params.code).trim().toUpperCase() },
     include: { institution: { include: { region: true } }, undertakings: true },
   });
   if (!app) return ok(res, { valid: false });
@@ -94,6 +94,9 @@ router.post('/', h(async (req, res) => {
   let institution_id = req.user.role === 'Institution' ? req.user.institution_id : Number(req.body.institution_id);
   if (!institution_id) return fail(res, 400, 'institution_id required');
   if (!APP_TYPES.includes(type)) return fail(res, 400, 'Invalid application type');
+  if (['Increase in Intake', 'New Institution'].includes(type) && !(Number(intake_requested) > 0)) return fail(res, 400, 'Enter the intake requested (a positive number)');
+  if (['New Course', 'New Institution'].includes(type) && !String(courses || '').trim()) return fail(res, 400, 'Name the course(s) applied for');
+  if (!(await canTouchInstitution(req.user, institution_id))) return fail(res, 403, 'That institution is outside your jurisdiction');
   const inst = await prisma.institution.findUnique({ where: { id: institution_id }, include: { region: true } });
   if (!inst) return fail(res, 404, 'Institution not found');
   const year = academic_year || '2027-28';
@@ -116,7 +119,7 @@ router.post('/:id/transition', h(async (req, res) => {
   const { to, remarks, undertakings = [], deficiencies = [] } = req.body;
   const app = await prisma.application.findFirst({
     where: { AND: [{ id: Number(req.params.id) }, appScope(req.user)] },
-    include: { institution: true, deficiencies: true, evc_visits: true },
+    include: { institution: true, deficiencies: true, evc_visits: true, transitions: { select: { to_stage: true } } },
   });
   if (!app) return fail(res, 404, 'Application not found');
   const move = allowedTransitions(app, req.user).find(m => m.to === to);
@@ -127,8 +130,8 @@ router.post('/:id/transition', h(async (req, res) => {
     return fail(res, 400, 'List at least one deficiency for the institution to address');
   if (app.stage === 'DEFICIENCY' && to === 'RESCRUTINY' && app.deficiencies.some(d => d.status === 'Open'))
     return fail(res, 400, 'Every open deficiency needs a response before re-scrutiny');
-  if (app.stage === 'EVC' && to === 'EC_REVIEW' && !app.evc_visits.some(v => v.status === 'Completed'))
-    return fail(res, 400, 'The EVC report must be filed before the application moves to the Executive Committee');
+  if (app.stage === 'EVC' && to === 'EC_REVIEW' && !app.evc_visits.some(v => v.status === 'Completed' && v.completed_at && v.completed_at >= app.stage_entered_at))
+    return fail(res, 400, 'The EVC report for this round must be filed before the application moves to the Executive Committee');
   if (to === 'CONDITIONAL' && !undertakings.length)
     return fail(res, 400, 'A conditional approval needs at least one time-bound undertaking');
   if (['REJECTED', 'CONDITIONAL', 'DEFICIENCY'].includes(to) && !remarks && !deficiencies.length)
@@ -147,8 +150,11 @@ router.post('/:id/transition', h(async (req, res) => {
   }
   if (to === 'SCRUTINY' && !app.assigned_officer_id && req.user.role === 'Officer') data.assigned_officer_id = req.user.id;
 
+  try {
   await prisma.$transaction(async tx => {
-    await tx.application.update({ where: { id: app.id }, data });
+    // Optimistic lock: only move if nobody else moved it since we read it (double-clicks, two officers).
+    const moved = await tx.application.updateMany({ where: { id: app.id, stage: app.stage, stage_entered_at: app.stage_entered_at }, data });
+    if (moved.count !== 1) throw Object.assign(new Error('STALE'), { stale: true });
     await tx.stageTransition.create({ data: { application_id: app.id, from_stage: app.stage, to_stage: to, actor_id: req.user.id, remarks: remarks || move.label, days_in_stage: s.days, sla_breached: s.breached } });
     for (const d of deficiencies) {
       await tx.deficiency.create({ data: { application_id: app.id, raised_by: req.user.id, category: d.category || 'Documents', description: d.description, severity: d.severity || 'Major', due_date: new Date(now.getTime() + 15 * DAY) } });
@@ -157,6 +163,10 @@ router.post('/:id/transition', h(async (req, res) => {
       await tx.undertaking.create({ data: { institution_id: app.institution_id, application_id: app.id, title: u.title, description: u.description || null, category: u.category || 'Lease Renewal', due_date: new Date(u.due_date) } });
     }
   });
+  } catch (e) {
+    if (e.stale) return fail(res, 409, 'This application was just moved by someone else. Refresh to see its current stage.');
+    throw e;
+  }
 
   await logActivity({ actorUserId: req.user.id, action: `${app.app_number}: ${STAGES[app.stage].label} → ${STAGES[to].label}`, entityType: 'Application', entityId: app.id, metadata: { remarks, sla_breached: s.breached } });
   await notifyInstitution(app.institution_id, `${app.app_number} moved to ${STAGES[to].label}${remarks ? ` — ${remarks}` : ''}`, app.id);
@@ -166,8 +176,11 @@ router.post('/:id/transition', h(async (req, res) => {
 }));
 
 router.patch('/:id/assign', requireRole(['Admin', 'Officer']), h(async (req, res) => {
+  const target = await prisma.application.findFirst({ where: { AND: [{ id: Number(req.params.id) }, appScope(req.user)] }, include: { institution: true } });
+  if (!target) return fail(res, 404, 'Application not found');
   const officer = await prisma.user.findFirst({ where: { id: Number(req.body.officer_id), role: { in: ['Officer', 'Admin'] } } });
   if (!officer) return fail(res, 400, 'Not an officer');
+  if (officer.role === 'Officer' && officer.region_id && officer.region_id !== target.institution.region_id) return fail(res, 400, `${officer.name} belongs to another Regional Office`);
   const app = await prisma.application.update({ where: { id: Number(req.params.id) }, data: { assigned_officer_id: officer.id } });
   await notify({ userId: officer.id, type: 'APPLICATION', message: `${app.app_number} assigned to you`, relatedEntityType: 'Application', relatedEntityId: app.id });
   await logActivity({ actorUserId: req.user.id, action: `Assigned ${app.app_number} to ${officer.name}`, entityType: 'Application', entityId: app.id });
@@ -178,6 +191,8 @@ router.patch('/:id/assign', requireRole(['Admin', 'Officer']), h(async (req, res
 router.post('/:id/deficiencies', requireRole(['Admin', 'Officer', 'Expert']), h(async (req, res) => {
   const { category, description, severity } = req.body;
   if (!description) return fail(res, 400, 'Description required');
+  const scoped = await prisma.application.findFirst({ where: { AND: [{ id: Number(req.params.id) }, appScope(req.user)] } });
+  if (!scoped) return fail(res, 404, 'Application not found');
   const d = await prisma.deficiency.create({ data: { application_id: Number(req.params.id), raised_by: req.user.id, category: category || 'Documents', description, severity: severity || 'Major', due_date: new Date(Date.now() + 15 * DAY) } });
   const app = await prisma.application.findUnique({ where: { id: d.application_id } });
   await notifyInstitution(app.institution_id, `New deficiency raised on ${app.app_number}: ${category}`, app.id);
@@ -197,6 +212,8 @@ router.patch('/deficiencies/:did/respond', h(async (req, res) => {
 router.patch('/deficiencies/:did/review', requireRole(['Admin', 'Officer', 'Expert']), h(async (req, res) => {
   const status = req.body.status;
   if (!['Accepted', 'Rejected', 'Open'].includes(status)) return fail(res, 400, 'Invalid status');
+  const def = await prisma.deficiency.findFirst({ where: { id: Number(req.params.did), application: appScope(req.user) } });
+  if (!def) return fail(res, 404, 'Deficiency not found');
   const upd = await prisma.deficiency.update({ where: { id: Number(req.params.did) }, data: { status } });
   ok(res, upd);
 }));

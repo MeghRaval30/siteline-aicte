@@ -24,7 +24,7 @@ export default function Institutions() {
   const remind = async () => {
     try {
       const r = await apiClient.post('/institutions/remind', { ids: selected });
-      toast(`Compliance digest sent to ${r.institutions} institution(s) (${r.notifications} notifications)`);
+      toast(`Digest sent to ${r.institutions} institution(s), ${r.notifications} user(s) notified${r.skipped_clean ? ` · ${r.skipped_clean} fully compliant, skipped` : ''}${r.no_portal_users ? ` · ${r.no_portal_users} have no portal users yet` : ''}`, r.institutions ? 'success' : 'warning');
       setSelected([]);
     } catch (e) { toast(e.message, 'error'); }
   };
