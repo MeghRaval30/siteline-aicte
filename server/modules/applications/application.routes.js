@@ -7,6 +7,11 @@ const notify = require('../../shared/notify');
 const logActivity = require('../../shared/logActivity');
 const { STAGES, TRANSITIONS, MAIN_TRACK, STATUS_FOR_STAGE, slaInfo, allowedTransitions, isTerminal, daysBetween, DAY } = require('../../shared/workflow');
 const { appScope, isOffice, canTouchInstitution, ok, fail, h } = require('../../shared/scope');
+const { template, summary, TEMPLATES } = require('../../shared/checklist');
+const fs = require('fs');
+const path = require('path');
+const UPLOAD_DIR = path.join(__dirname, '../../uploads');
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const router = express.Router();
 
@@ -40,7 +45,7 @@ router.get('/verify/:code', h(async (req, res) => {
 router.use(authenticate);
 
 router.get('/meta', h(async (req, res) => {
-  ok(res, { stages: STAGES, transitions: TRANSITIONS, main_track: MAIN_TRACK, types: APP_TYPES, deficiency_categories: DEFICIENCY_CATEGORIES, undertaking_categories: UNDERTAKING_CATEGORIES });
+  ok(res, { stages: STAGES, transitions: TRANSITIONS, main_track: MAIN_TRACK, types: APP_TYPES, checklist_templates: TEMPLATES, deficiency_categories: DEFICIENCY_CATEGORIES, undertaking_categories: UNDERTAKING_CATEGORIES });
 }));
 
 router.get('/', h(async (req, res) => {
@@ -62,10 +67,11 @@ router.get('/', h(async (req, res) => {
       institution: { include: { region: true } },
       assigned_officer: { select: { id: true, name: true } },
       deficiencies: { where: { status: 'Open' }, select: { id: true } },
+      checklist: { select: { status: true, required: true, label: true } },
     },
     orderBy: [{ stage_entered_at: 'asc' }],
   });
-  rows = rows.map(withSla);
+  rows = rows.map(r => { const { checklist, ...rest } = withSla(r); return { ...rest, checklist: summary(checklist) }; });
   if (overdue === '1') rows = rows.filter(r => r.sla.breached);
   const total = rows.length;
   ok(res, rows.slice((page - 1) * limit, page * limit), { meta: { total, page, limit } });
@@ -82,11 +88,12 @@ router.get('/:id', h(async (req, res) => {
       evc_visits: { include: { members: { include: { user: { select: { id: true, name: true, state: true, specialization: true, designation: true } } } } }, orderBy: { visit_date: 'desc' } },
       undertakings: { orderBy: { due_date: 'asc' } },
       documents: true,
+      checklist: { orderBy: { id: 'asc' } },
     },
   });
   if (!app) return fail(res, 404, 'Application not found');
   const instDocs = await prisma.complianceDocument.findMany({ where: { institution_id: app.institution_id, status: { not: 'Superseded' } }, orderBy: { valid_to: 'asc' } });
-  ok(res, { ...withSla(app), institution_documents: instDocs, allowed_transitions: allowedTransitions(app, req.user) });
+  ok(res, { ...withSla(app), checklist_summary: summary(app.checklist), institution_documents: instDocs, allowed_transitions: allowedTransitions(app, req.user) });
 }));
 
 router.post('/', h(async (req, res) => {
@@ -107,6 +114,7 @@ router.post('/', h(async (req, res) => {
       app_number, institution_id, type, academic_year: year, priority: priority || 'Normal',
       intake_requested: intake_requested ? Number(intake_requested) : null, courses: courses || null,
       transitions: { create: { to_stage: 'SUBMITTED', actor_id: req.user.id, remarks: 'Application submitted on portal' } },
+      checklist: { create: template(type) },
     },
   });
   await logActivity({ actorUserId: req.user.id, action: `Submitted application ${app_number}`, entityType: 'Application', entityId: app.id });
@@ -119,13 +127,18 @@ router.post('/:id/transition', h(async (req, res) => {
   const { to, remarks, undertakings = [], deficiencies = [] } = req.body;
   const app = await prisma.application.findFirst({
     where: { AND: [{ id: Number(req.params.id) }, appScope(req.user)] },
-    include: { institution: true, deficiencies: true, evc_visits: true, transitions: { select: { to_stage: true } } },
+    include: { institution: true, deficiencies: true, evc_visits: true, transitions: { select: { to_stage: true } }, checklist: true },
   });
   if (!app) return fail(res, 404, 'Application not found');
   const move = allowedTransitions(app, req.user).find(m => m.to === to);
   if (!move) return fail(res, 403, `You cannot move this application from ${STAGES[app.stage].label} to ${STAGES[to]?.label || to}`);
 
   // Guards that keep the pipeline honest
+  const docs = summary(app.checklist);
+  if (app.stage === 'SUBMITTED' && to === 'SCRUTINY' && docs.missing.length)
+    return fail(res, 400, `Scrutiny can't start: ${docs.missing.length} required document(s) not uploaded (${docs.missing.slice(0, 3).join('; ')}${docs.missing.length > 3 ? '…' : ''})`);
+  if (['SCRUTINY', 'RESCRUTINY'].includes(app.stage) && ['EVC', 'EC_REVIEW'].includes(to) && docs.unverified.length)
+    return fail(res, 400, `Verify every required document before clearing scrutiny (${docs.unverified.length} not verified)`);
   if (to === 'DEFICIENCY' && !deficiencies.length && !app.deficiencies.some(d => d.status === 'Open'))
     return fail(res, 400, 'List at least one deficiency for the institution to address');
   if (app.stage === 'DEFICIENCY' && to === 'RESCRUTINY' && app.deficiencies.some(d => d.status === 'Open'))
@@ -215,6 +228,46 @@ router.patch('/deficiencies/:did/review', requireRole(['Admin', 'Officer', 'Expe
   const def = await prisma.deficiency.findFirst({ where: { id: Number(req.params.did), application: appScope(req.user) } });
   if (!def) return fail(res, 404, 'Deficiency not found');
   const upd = await prisma.deficiency.update({ where: { id: Number(req.params.did) }, data: { status } });
+  ok(res, upd);
+}));
+
+// ---------- submission checklist ----------
+async function checklistTarget(req, res) {
+  const app = await prisma.application.findFirst({ where: { AND: [{ id: Number(req.params.id) }, appScope(req.user)] } });
+  if (!app) { fail(res, 404, 'Application not found'); return null; }
+  const item = await prisma.checklistItem.findFirst({ where: { id: Number(req.params.itemId), application_id: app.id } });
+  if (!item) { fail(res, 404, 'Checklist item not found'); return null; }
+  return { app, item };
+}
+
+router.post('/:id/checklist/:itemId/upload', h(async (req, res) => {
+  const t = await checklistTarget(req, res); if (!t) return;
+  const { app, item } = t;
+  if (req.user.role === 'Expert') return fail(res, 403, 'Experts cannot upload application documents');
+  const open = req.user.role === 'Institution' ? ['SUBMITTED', 'DEFICIENCY'] : ['SUBMITTED', 'SCRUTINY', 'DEFICIENCY', 'RESCRUTINY'];
+  if (!open.includes(app.stage)) return fail(res, 400, `Documents can't be changed while the application is at ${STAGES[app.stage].label}`);
+  if (item.status === 'Verified') return fail(res, 400, 'This document is already verified');
+  const { file_name, file_data } = req.body;
+  if (!file_name || !file_data) return fail(res, 400, 'Choose a file to upload');
+  const ext = (String(file_name).match(/\.[a-zA-Z0-9]{1,5}$/) || [''])[0];
+  const stored = `${crypto.randomUUID()}${ext}`;
+  fs.writeFileSync(path.join(UPLOAD_DIR, stored), Buffer.from(String(file_data).replace(/^data:[^;]+;base64,/, ''), 'base64'));
+  const upd = await prisma.checklistItem.update({ where: { id: item.id }, data: { status: 'Uploaded', file_name: String(file_name).slice(0, 120), file_url: `/uploads/${stored}`, uploaded_at: new Date(), remarks: item.status === 'Deficient' ? `Re-uploaded after: ${item.remarks || 'deficiency'}` : null } });
+  await logActivity({ actorUserId: req.user.id, action: `Uploaded "${item.label}" for ${app.app_number}`, entityType: 'Application', entityId: app.id });
+  ok(res, upd);
+}));
+
+router.patch('/:id/checklist/:itemId/review', requireRole(['Admin', 'Officer']), h(async (req, res) => {
+  const t = await checklistTarget(req, res); if (!t) return;
+  const { app, item } = t;
+  const { decision, remarks } = req.body;
+  if (!['SUBMITTED', 'SCRUTINY', 'RESCRUTINY'].includes(app.stage)) return fail(res, 400, 'Documents are verified during scrutiny');
+  if (!['Verified', 'Deficient'].includes(decision)) return fail(res, 400, 'Decision must be Verified or Deficient');
+  if (item.status === 'Pending') return fail(res, 400, 'Nothing uploaded for this item yet');
+  if (decision === 'Deficient' && !remarks) return fail(res, 400, 'Say what is wrong with the document');
+  const upd = await prisma.checklistItem.update({ where: { id: item.id }, data: { status: decision, remarks: remarks || null, verified_by: req.user.name, verified_at: new Date() } });
+  if (decision === 'Deficient') await notifyInstitution(app.institution_id, `${app.app_number}: "${item.label}" marked deficient — ${remarks}`, app.id);
+  await logActivity({ actorUserId: req.user.id, action: `${decision === 'Verified' ? 'Verified' : 'Marked deficient'} "${item.label}" on ${app.app_number}`, entityType: 'Application', entityId: app.id });
   ok(res, upd);
 }));
 

@@ -102,6 +102,7 @@ export default function Applications() {
                       <div className="sl-text-sm sl-font-medium">{r.institution.name}</div>
                       <div className="sl-text-xs sl-text-muted sl-mb-2">{r.app_number} · {r.type}</div>
                       <SlaPill sla={r.sla} />
+                      {['SUBMITTED', 'SCRUTINY', 'DEFICIENCY', 'RESCRUTINY'].includes(r.stage) && <div className={`sl-text-xs sl-mt-1 ${r.checklist.deficient ? 'sl-text-danger' : r.checklist.missing.length ? 'aq-tone-warning' : 'sl-text-muted'}`}>Docs {r.checklist.verified}/{r.checklist.total} verified{r.checklist.missing.length ? ` · ${r.checklist.missing.length} missing` : ''}{r.checklist.deficient ? ` · ${r.checklist.deficient} deficient` : ''}</div>}
                       {r.priority !== 'Normal' && <span className={`sl-badge sl-badge--${r.priority === 'Court-Directed' ? 'danger' : 'warning'} sl-mt-2`}>{r.priority}</span>}
                     </div>
                   ))}
@@ -120,7 +121,8 @@ export default function Applications() {
                   <td><div className="sl-font-mono sl-text-xs">{r.app_number}</div>{r.priority !== 'Normal' && <span className={`sl-badge sl-badge--${r.priority === 'Court-Directed' ? 'danger' : 'warning'}`}>{r.priority}</span>}</td>
                   <td><div className="sl-font-medium">{r.institution.name}</div><div className="sl-text-xs sl-text-muted">{r.institution.city}, {r.institution.state} · {r.institution.region.code}</div></td>
                   <td className="sl-text-sm">{r.type}</td>
-                  <td><StageBadge stage={r.stage} />{r.deficiencies?.length > 0 && <div className="sl-text-xs sl-text-danger sl-mt-1">{r.deficiencies.length} open deficienc{r.deficiencies.length > 1 ? 'ies' : 'y'}</div>}</td>
+                  <td><StageBadge stage={r.stage} />{r.deficiencies?.length > 0 && <div className="sl-text-xs sl-text-danger sl-mt-1">{r.deficiencies.length} open deficienc{r.deficiencies.length > 1 ? 'ies' : 'y'}</div>}
+                    {r.stage === 'SUBMITTED' && r.checklist.missing.length > 0 && <div className="sl-text-xs aq-tone-warning sl-mt-1">{r.checklist.missing.length} document(s) missing</div>}</td>
                   <td><SlaPill sla={r.sla} /></td>
                   <td className="sl-text-sm">{r.assigned_officer?.name || <span className="sl-text-muted">—</span>}</td>
                   <td className="sl-text-sm sl-whitespace-nowrap">{fmtDate(r.submitted_at)}</td>
@@ -131,7 +133,7 @@ export default function Applications() {
         </div>
       )}
 
-      {showNew && <NewApplication meta={meta} user={user} onClose={() => { setShowNew(false); setParam('new', ''); }} onCreated={app => { toast(`Application ${app.app_number} submitted`); navigate(`/applications/${app.id}`); }} />}
+      {showNew && <NewApplication meta={meta} user={user} onClose={() => { setShowNew(false); setParam('new', ''); }} onCreated={app => { toast(`Application ${app.app_number} created: upload the mandatory documents`); navigate(`/applications/${app.id}?tab=checklist`); }} />}
     </div>
   );
 }
@@ -166,6 +168,12 @@ function NewApplication({ meta, user, onClose, onCreated }) {
       {['Increase in Intake', 'New Institution'].includes(form.type) && <div className="sl-form-group sl-mb-4"><label className="sl-label">Intake requested *</label><input className="sl-input" type="number" min="1" step="1" value={form.intake_requested} onChange={e => f('intake_requested', e.target.value)} /></div>}
       {['New Course', 'New Institution'].includes(form.type) && <div className="sl-form-group sl-mb-4"><label className="sl-label">Course(s) *</label><input className="sl-input" placeholder="e.g. B.Tech CSE (AI & ML)" value={form.courses} onChange={e => f('courses', e.target.value)} /></div>}
       {isOffice(user) && <div className="sl-form-group"><label className="sl-label">Priority</label><select className="sl-select" value={form.priority} onChange={e => f('priority', e.target.value)}><option>Normal</option><option>High</option><option>Court-Directed</option></select></div>}
+      {meta?.checklist_templates?.[form.type] && (
+        <div className="aq-panel sl-mt-4">
+          <div className="sl-text-xs sl-font-semibold sl-mb-1">Documents you will upload next ({meta.checklist_templates[form.type].length})</div>
+          {meta.checklist_templates[form.type].map(t => <div key={t.item_key} className="sl-text-xs sl-text-muted">• {t.label}{t.required ? '' : ' (optional)'}</div>)}
+        </div>
+      )}
       <p className="sl-text-xs sl-text-muted sl-mt-4">The application enters the Submitted stage and is routed to the Regional Office scrutiny desk. Each stage carries an SLA; delays are tracked and alerted automatically.</p>
     </Modal>
   );

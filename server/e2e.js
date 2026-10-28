@@ -15,6 +15,8 @@ async function login(email) {
   return { user: r.data.user, token, get: u => call('GET', u), post: (u, b) => call('POST', u, b), patch: (u, b) => call('PATCH', u, b) };
 }
 
+const uploadItem = (who, appId, itemId) => who.post(`/applications/${appId}/checklist/${itemId}/upload`, { file_name: 'doc.pdf', file_data: Buffer.from('%PDF-1.4 e2e').toString('base64') });
+
 (async () => {
   const inst = await login('institute@sahyadri-it.edu.in');
   const off = await login('officer@aicte.gov.in');
@@ -30,7 +32,20 @@ async function login(email) {
   let r = await inst.post(`/applications/${id}/transition`, { to: 'SCRUTINY' });
   check(r.status === 403, 'institution cannot start scrutiny (role gate)');
   r = await off.post(`/applications/${id}/transition`, { to: 'SCRUTINY' });
-  check(r.success, 'officer starts scrutiny');
+  check(r.status === 400 && /required document/.test(r.error), 'scrutiny blocked until the mandatory documents are uploaded');
+  const items = (await inst.get(`/applications/${id}`)).data.checklist;
+  check(items.length === 5 && items.every(i => i.status === 'Pending'), `checklist created from the New Course template (${items.length} items)`);
+  for (const it of items) await uploadItem(inst, id, it.id);
+  r = await off.post(`/applications/${id}/transition`, { to: 'SCRUTINY' });
+  check(r.success, 'officer starts scrutiny once every document is uploaded');
+  const lab = items.find(i => i.item_key === 'lab_library');
+  r = await off.patch(`/applications/${id}/checklist/${lab.id}/review`, { decision: 'Deficient' });
+  check(r.status === 400, 'marking a document deficient needs a reason');
+  r = await off.patch(`/applications/${id}/checklist/${lab.id}/review`, { decision: 'Deficient', remarks: 'Robotics lab list incomplete' });
+  check(r.success, 'officer marks a document deficient');
+  for (const it of items.filter(i => i.id !== lab.id)) await off.patch(`/applications/${id}/checklist/${it.id}/review`, { decision: 'Verified' });
+  r = await off.post(`/applications/${id}/transition`, { to: 'EVC' });
+  check(r.status === 400 && /Verify every required document/.test(r.error), 'cannot clear scrutiny with a deficient document');
   r = await off.post(`/applications/${id}/transition`, { to: 'DEFICIENCY', deficiencies: [{ category: 'Laboratory', description: 'Robotics lab not equipped', severity: 'Major' }] });
   check(r.success, 'officer raises deficiency');
   r = await inst.post(`/applications/${id}/transition`, { to: 'RESCRUTINY' });
@@ -38,10 +53,13 @@ async function login(email) {
   const app = (await inst.get(`/applications/${id}`)).data;
   r = await inst.patch(`/applications/deficiencies/${app.deficiencies[0].id}/respond`, { response: 'Lab equipped, invoices uploaded' });
   check(r.success, 'institution responds to deficiency');
+  r = await uploadItem(inst, id, lab.id);
+  check(r.success && r.data.status === 'Uploaded', 'institution re-uploads the deficient document');
   r = await inst.post(`/applications/${id}/transition`, { to: 'RESCRUTINY' });
   check(r.success, 'institution submits for re-scrutiny');
+  await off.patch(`/applications/${id}/checklist/${lab.id}/review`, { decision: 'Verified' });
   r = await off.post(`/applications/${id}/transition`, { to: 'EVC' });
-  check(r.success, 'officer clears re-scrutiny to EVC');
+  check(r.success, 'officer verifies the re-upload and clears re-scrutiny to EVC');
   r = await off.post(`/applications/${id}/transition`, { to: 'EC_REVIEW' });
   check(r.status === 400, 'cannot reach EC before the EVC report is filed');
 
@@ -159,6 +177,7 @@ async function login(email) {
   r = await inst.post('/applications', { type: 'New Course', courses: '' });
   check(r.status === 400, 'New Course without a course name is rejected');
   const race = await off.post('/applications', { type: 'Extension of Approval', institution_id: (await off.get('/institutions')).data[0].id });
+  for (const it of (await off.get(`/applications/${race.data.id}`)).data.checklist) await uploadItem(off, race.data.id, it.id);
   const [t1, t2] = await Promise.all([off.post(`/applications/${race.data.id}/transition`, { to: 'SCRUTINY' }), off.post(`/applications/${race.data.id}/transition`, { to: 'SCRUTINY' })]);
   check([t1.status, t2.status].sort().join() === '200,409', 'double-submitted transition: one succeeds, one is refused (409)');
   const hist = (await off.get(`/applications/${race.data.id}`)).data.transitions.filter(t => t.to_stage === 'SCRUTINY');

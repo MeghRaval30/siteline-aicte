@@ -9,6 +9,7 @@ AICTE moves applications from technical institutions through scrutiny, re-scruti
 
 | Need in the problem statement | How SiteLine handles it |
 |---|---|
+| Mandatory submission documents | Every application gets the **document checklist for its type** (affidavit, land/lease, building plan, completion certificate, fire NOC, State NOC, affiliation consent, faculty and lab lists…). Scrutiny can't start until the required items are uploaded and can't be cleared until each one is verified. Items marked deficient pre-fill the deficiency letter, and the institution re-uploads only those. |
 | Application movement through APH stages | A **workflow state machine** covering Submitted → Scrutiny → Deficiency ⇄ Re-scrutiny → EVC → Executive Committee → LoA / Conditional / LoR, with SAC appeal and SHC hearing as side tracks. Every move is role-gated and guarded (for example, an application can't reach EC until the EVC report is filed), and every move is time-stamped. |
 | Stage-wise pendency | Each stage has an **SLA**. The system shows days in stage, SLA breaches, ageing buckets, a **Regional Office × stage heatmap**, a kanban pipeline board and SLA adherence history. |
 | EVC scheduling | A **smart panel builder** ranks experts and blocks anyone from the institution's home state (conflict of interest) or already on a visit that day. It prefers lighter workloads and matching specialisations. Experts file reports from their own login. |
@@ -48,7 +49,7 @@ Continuing development on another machine or in a new AI session? Start with [`H
 
 ### Test
 ```bash
-npm run seed --prefix server && npm run e2e --prefix server   # 61 checks: lifecycle, all four roles, Import Studio, security & race regressions (reseed afterwards)
+npm run seed --prefix server && npm run e2e --prefix server   # 72 checks: lifecycle incl. document checklist, all four roles, Import Studio, security & race regressions (reseed afterwards)
 ```
 
 ## Demo script (about 6 minutes)
@@ -57,6 +58,7 @@ npm run seed --prefix server && npm run e2e --prefix server   # 61 checks: lifec
 3. **AI Assistant**: "Which applications are stuck past their SLA?" Expand the reasoning trace.
 4. **Institution** → Dashboard: score ring, deficiencies to answer, lease deed expiring in 21 days. **Renew** it by uploading a file. Answer the deficiencies, then submit for re-scrutiny.
 5. **Officer** → Documents: **Verify** the renewal; the toast reports the alerts that closed automatically. Open the application, clear re-scrutiny, then **Schedule EVC** and watch the conflict-of-interest blocking.
+5b. **Officer** → open a Scrutiny application → **Checklist** tab: verify documents, mark one deficient with a reason, then **Raise Deficiency** (pre-filled from the checklist).
 6. **Officer** → **Import Studio**: import the hand-kept WRO register sample. Show the header found on line 4, the votes, the 43 auto-fixes, the duplicate and the missing state, then import and watch new alerts appear.
 7. **Expert** → My Visits: file the report and move the application to the Executive Committee.
 8. **Admin** → **Approve with undertakings**, open the **LoA**, scan its QR code, or open `/verify/<code>` in a private window.

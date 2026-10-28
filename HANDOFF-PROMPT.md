@@ -36,7 +36,7 @@ The person you are working with is a member of the hackathon team (not necessari
    If you plan to edit the frontend a lot, run the Vite dev server instead: `npm run dev --prefix client` (http://localhost:5173, proxies /api to :3000) alongside `npm start`.
 8. **Prove it works before changing anything:** in another terminal run
    ```bash
-   npm run seed --prefix server && npm run e2e --prefix server   # expect: ALL CHECKS PASSED (61 checks)
+   npm run seed --prefix server && npm run e2e --prefix server   # expect: ALL CHECKS PASSED (72 checks)
    npm run seed --prefix server                                   # e2e mutates data — always reseed afterwards
    ```
    Then open http://localhost:3000 and sign in with the demo accounts in §3. If anything fails here, fix setup first and tell the user.
@@ -107,7 +107,7 @@ package.json                 root scripts: setup, start, seed, e2e
 README.md                    features, setup, demo script (keep it in sync)
 server/
   index.js                   mounts routers under /api/v1, serves /uploads and client/dist, starts alert scheduler
-  e2e.js                     61-check end-to-end API suite (needs a running server; mutates data)
+  e2e.js                     72-check end-to-end API suite (needs a running server; mutates data)
   prisma/schema.prisma       data model (SQLite; use `npx prisma db push`, there are no migrations)
   prisma/seed.js             demo data (see §3)
   shared/
@@ -188,7 +188,7 @@ Triggers: `DOC_EXPIRING{days,doc_type}`, `DOC_EXPIRED{doc_type}`, `UNDERTAKING_D
 
 ## 6. Current status — what works (verified 2026-10-28 21:30 IST)
 
-Everything below was clicked through in a browser as all four roles and is covered by `server/e2e.js` (61 checks, all passing on a fresh clone):
+Everything below was clicked through in a browser as all four roles and is covered by `server/e2e.js` (72 checks, all passing):
 - Login/logout, role dashboards (Admin/Officer command centre with KPIs linking to matching lists, pendency chart with clickable bars, ageing, regional heatmap, top alerts, longest past SLA, throughput, compliance grades; Expert "my visits"; Institution home with score ring, deficiencies to answer, documents to renew, undertakings due).
 - Applications list (search, stage/region/type filters, past-SLA, CSV) and kanban pipeline board; new application with required-field validation; full lifecycle through every stage incl. deficiency loop, EVC, EC decisions, conditional approval with undertakings, rejection → one SAC appeal → SHC; LoA/LoR letter with QR + public verification (case-insensitive).
 - EVC: smart panel builder (blocks home-state experts and double-booked experts, ranks by load/specialisation, choose chair), one open visit per application, report filing by panel members.
@@ -226,6 +226,8 @@ Command-palette crash (missing `X` import) + no error boundary · cross-region/c
 ## 9. Backlog — what to do next (in priority order)
 
 Ask the user which of these to do; recommend in this order. For each, add e2e checks and keep the demo working.
+
+**✅ DONE (2026-10-28 22:15): P0 mandatory document checklist** — `shared/checklist.js` templates per application type, `ChecklistItem` model, `POST /applications/:id/checklist/:itemId/upload`, `PATCH …/review`, scrutiny start/clear guards, Checklist tab, deficiency pre-fill, docs progress on cards. Kept below for reference.
 
 **P0 — Mandatory document checklist at submission (biggest gap an AICTE judge will notice).** Today an application is just a type + academic year. Real APH applications require a set of documents/affidavits that scrutiny verifies item by item.
 - Model: `ChecklistTemplate {application_type, item_key, label, required, accepts_doc_type?}` (seed per application type: e.g. Land documents, Building plan approval, Building Completion Certificate, Fire NOC, Structural Stability Certificate, Affidavit (notarised), Society/Trust registration, Corpus FD, Faculty list, Library & lab lists, Affiliation/NOC from State Government) and `ApplicationChecklistItem {application_id, item_key, status Pending/Uploaded/Verified/Deficient, file_url, remarks, verified_by}`.

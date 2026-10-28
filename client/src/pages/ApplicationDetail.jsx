@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { ArrowLeft, FileText, Plus, Trash2, CalendarPlus, ClipboardEdit, Check, X, Building2, UserCog, AlertTriangle } from 'lucide-react';
 import { apiClient } from '../api/client';
-import { StageBadge, SlaPill, StatusBadge, Modal, Loading, toast, getUser, isOffice, fmtDate, fmtDateTime, daysUntil, STAGE_SHORT } from '../components/ui';
+import { StageBadge, SlaPill, StatusBadge, Modal, Loading, toast, getUser, isOffice, fmtDate, fmtDateTime, daysUntil, fileToBase64, STAGE_SHORT } from '../components/ui';
 import { ScheduleEvcModal, EvcReportModal } from '../components/EvcModals';
 import { SubmitUndertakingModal, ReviewUndertakingModal, UploadDocModal } from '../components/ComplianceModals';
 
@@ -38,7 +38,7 @@ export default function ApplicationDetail() {
   const user = getUser();
   const [app, setApp] = useState(null);
   const [meta, setMeta] = useState(null);
-  const [tab, setTab] = useState(params.get('tab') || 'timeline');
+  const [tab, setTab] = useState(params.get('tab') || null);
   const [move, setMove] = useState(null);
   const [modal, setModal] = useState(null);
   const [officers, setOfficers] = useState([]);
@@ -47,6 +47,9 @@ export default function ApplicationDetail() {
   useEffect(() => { load(); apiClient.get('/applications/meta').then(setMeta).catch(() => {}); if (isOffice(user)) apiClient.get('/users?role=Officer,Admin').then(setOfficers).catch(() => {}); }, [id]);
 
   if (!app) return <Loading />;
+  const cs = app.checklist_summary;
+  const docsBlocking = (app.stage === 'SUBMITTED' && cs.missing.length) || (['SCRUTINY', 'RESCRUTINY', 'DEFICIENCY'].includes(app.stage) && cs.unverified.length);
+  const activeTab = tab || (docsBlocking ? 'checklist' : 'timeline');
   const openDefs = app.deficiencies.filter(d => d.status === 'Open');
   const done = () => { setModal(null); load(); };
 
@@ -98,6 +101,17 @@ export default function ApplicationDetail() {
               {app.allowed_transitions.length === 0 && <span className="sl-text-xs sl-text-muted">No actions available for your role at this stage</span>}
             </div>
           </div>
+          {docsBlocking ? (
+            <div className="aq-panel sl-mt-4 sl-flex sl-items-center sl-gap-2" style={{ borderColor: cs.deficient ? 'var(--sl-danger)' : 'var(--sl-warning)' }}>
+              <FileText size={16} className="sl-text-accent" />
+              <span className="sl-text-sm">
+                {app.stage === 'SUBMITTED' ? `${cs.missing.length} required document(s) not uploaded — scrutiny cannot start until the checklist is complete.`
+                  : cs.deficient ? `${cs.deficient} document(s) marked deficient — ${user.role === 'Institution' ? 're-upload them' : 'raise a deficiency or wait for re-upload'}.`
+                  : `${cs.unverified.length} required document(s) still to be verified before scrutiny can be cleared.`}
+              </span>
+              <button className="sl-btn sl-btn--ghost sl-btn--sm sl-ml-auto" onClick={() => setTab('checklist')}>Open checklist</button>
+            </div>
+          ) : null}
           {app.stage === 'DEFICIENCY' && user.role === 'Institution' && openDefs.length > 0 && (
             <div className="aq-panel sl-mt-4 sl-flex sl-items-center sl-gap-2" style={{ borderColor: 'var(--sl-warning)' }}><AlertTriangle size={16} className="sl-text-accent" /><span className="sl-text-sm">Respond to all {openDefs.length} open deficiencies (Deficiencies tab), then submit for re-scrutiny. Response due {fmtDate(openDefs[0].due_date)}.</span></div>
           )}
@@ -105,12 +119,14 @@ export default function ApplicationDetail() {
       </div>
 
       <div className="sl-tabs">
-        {[['timeline', 'Timeline'], ['deficiencies', `Deficiencies (${app.deficiencies.length})`], ['evc', `EVC (${app.evc_visits.length})`], ['undertakings', `Undertakings (${app.undertakings.length})`], ['documents', `Documents (${app.institution_documents.length})`]].map(([k, l]) => (
-          <button key={k} className={`sl-tab ${tab === k ? 'active' : ''}`} onClick={() => setTab(k)}>{l}</button>
+        {[['timeline', 'Timeline'], ['checklist', `Checklist (${cs.verified}/${cs.total})`], ['deficiencies', `Deficiencies (${app.deficiencies.length})`], ['evc', `EVC (${app.evc_visits.length})`], ['undertakings', `Undertakings (${app.undertakings.length})`], ['documents', `Documents (${app.institution_documents.length})`]].map(([k, l]) => (
+          <button key={k} className={`sl-tab ${activeTab === k ? 'active' : ''}`} onClick={() => setTab(k)}>{l}</button>
         ))}
       </div>
 
-      {tab === 'timeline' && (
+      {activeTab === 'checklist' && <Checklist app={app} user={user} reload={load} />}
+
+      {activeTab === 'timeline' && (
         <div className="sl-card"><div className="sl-card__body">
           <div className="sl-timeline">
             {[...app.transitions].reverse().map(t => (
@@ -131,9 +147,9 @@ export default function ApplicationDetail() {
         </div></div>
       )}
 
-      {tab === 'deficiencies' && <Deficiencies app={app} user={user} meta={meta} reload={load} />}
+      {activeTab === 'deficiencies' && <Deficiencies app={app} user={user} meta={meta} reload={load} />}
 
-      {tab === 'evc' && (
+      {activeTab === 'evc' && (
         <div className="sl-card">
           <div className="sl-card__header"><h3 className="sl-card__title">Expert Visit Committee</h3>
             {isOffice(user) && ['EVC', 'SCRUTINY', 'RESCRUTINY', 'SAC'].includes(app.stage) && <button className="sl-btn sl-btn--primary sl-btn--sm" onClick={() => setModal({ kind: 'schedule' })}><CalendarPlus size={14} /> Schedule EVC</button>}</div>
@@ -153,7 +169,7 @@ export default function ApplicationDetail() {
         </div>
       )}
 
-      {tab === 'undertakings' && (
+      {activeTab === 'undertakings' && (
         <div className="sl-card"><div className="sl-card__body">
           {app.undertakings.length === 0 ? <p className="sl-text-muted sl-text-sm">No undertakings. They are created when approval is granted with conditions.</p> : (
             <table className="sl-table sl-table--compact"><thead><tr><th>Undertaking</th><th>Category</th><th>Due</th><th>Status</th><th></th></tr></thead><tbody>
@@ -171,7 +187,7 @@ export default function ApplicationDetail() {
         </div></div>
       )}
 
-      {tab === 'documents' && (
+      {activeTab === 'documents' && (
         <div className="sl-card"><div className="sl-card__body">
           <table className="sl-table sl-table--compact"><thead><tr><th>Document</th><th>Number</th><th>Valid till</th><th>Status</th><th></th></tr></thead><tbody>
             {app.institution_documents.map(d => (
@@ -190,6 +206,68 @@ export default function ApplicationDetail() {
       {modal?.kind === 'submitU' && <SubmitUndertakingModal undertaking={modal.u} onClose={() => setModal(null)} onDone={done} />}
       {modal?.kind === 'reviewU' && <ReviewUndertakingModal undertaking={modal.u} onClose={() => setModal(null)} onDone={done} />}
       {modal?.kind === 'renew' && <UploadDocModal renewOf={modal.d} onClose={() => setModal(null)} onDone={done} />}
+    </div>
+  );
+}
+
+function Checklist({ app, user, reload }) {
+  const [busyId, setBusyId] = useState(null);
+  const [reasons, setReasons] = useState({});
+  const s = app.checklist_summary;
+  const canUpload = (user.role === 'Institution' && ['SUBMITTED', 'DEFICIENCY'].includes(app.stage)) || (isOffice(user) && ['SUBMITTED', 'SCRUTINY', 'DEFICIENCY', 'RESCRUTINY'].includes(app.stage));
+  const canReview = isOffice(user) && ['SUBMITTED', 'SCRUTINY', 'RESCRUTINY'].includes(app.stage);
+  const upload = async (item, file) => {
+    if (!file) return;
+    setBusyId(item.id);
+    try { await apiClient.post(`/applications/${app.id}/checklist/${item.id}/upload`, { file_name: file.name, file_data: await fileToBase64(file) }); toast(`${item.label} uploaded`); reload(); } catch (e) { toast(e.message, 'error'); }
+    setBusyId(null);
+  };
+  const review = async (item, decision) => {
+    setBusyId(item.id);
+    try { await apiClient.patch(`/applications/${app.id}/checklist/${item.id}/review`, { decision, remarks: reasons[item.id] }); toast(decision === 'Verified' ? 'Document verified' : 'Marked deficient; institution notified'); setReasons({ ...reasons, [item.id]: '' }); reload(); } catch (e) { toast(e.message, 'error'); }
+    setBusyId(null);
+  };
+  const pct = s.required ? Math.round(100 * app.checklist.filter(i => i.required && i.status === 'Verified').length / s.required) : 0;
+  return (
+    <div className="sl-card">
+      <div className="sl-card__header">
+        <h3 className="sl-card__title">Mandatory documents</h3>
+        <span className="sl-text-xs sl-text-muted">{s.uploaded}/{s.total} uploaded · {s.verified} verified{s.deficient ? ` · ${s.deficient} deficient` : ''}</span>
+      </div>
+      <div className="sl-card__body">
+        <div className="aq-sla__bar sl-mb-4" title={`${pct}% of required documents verified`}><div className={`aq-sla__fill aq-sla__fill--${pct === 100 ? 'success' : s.deficient ? 'danger' : 'warning'}`} style={{ width: `${Math.max(pct, 2)}%` }} /></div>
+        <table className="sl-table sl-table--compact">
+          <thead><tr><th>Document</th><th>Status</th><th>File</th><th style={{ width: 320 }}></th></tr></thead>
+          <tbody>
+            {app.checklist.map(item => (
+              <tr key={item.id}>
+                <td><div className="sl-text-sm sl-font-medium">{item.label}</div><div className="sl-text-xs sl-text-muted">{item.required ? 'Required' : 'Optional'}{item.verified_by ? ` · ${item.status === 'Verified' ? 'verified' : 'reviewed'} by ${item.verified_by}` : ''}</div>
+                  {item.remarks && <div className={`sl-text-xs sl-mt-1 ${item.status === 'Deficient' ? 'sl-text-danger' : 'sl-text-muted'}`}>{item.remarks}</div>}</td>
+                <td><StatusBadge status={{ Pending: 'Not uploaded', Uploaded: 'Awaiting verification' }[item.status] || item.status} /></td>
+                <td className="sl-text-xs">{item.file_url ? <a href={item.file_url} target="_blank" rel="noreferrer" className="sl-text-accent">{item.file_name}</a> : item.file_name || '—'}</td>
+                <td className="sl-text-right">
+                  {canUpload && item.status !== 'Verified' && (
+                    <label className={`sl-btn sl-btn--${item.status === 'Pending' || item.status === 'Deficient' ? 'primary' : 'secondary'} sl-btn--sm`} style={{ cursor: 'pointer' }}>
+                      {busyId === item.id ? <span className="sl-btn__spinner" /> : item.status === 'Pending' ? 'Upload' : 'Replace'}
+                      <input type="file" accept=".pdf,image/*" hidden onChange={e => upload(item, e.target.files[0])} />
+                    </label>
+                  )}
+                  {canReview && ['Uploaded', 'Deficient'].includes(item.status) && item.status !== 'Deficient' && (
+                    <div className="sl-flex sl-gap-1 sl-justify-end sl-items-center sl-mt-1">
+                      <input className="sl-input" style={{ height: 30, fontSize: 12, maxWidth: 160 }} placeholder="Reason if deficient" value={reasons[item.id] || ''} onChange={e => setReasons({ ...reasons, [item.id]: e.target.value })} />
+                      <button className="sl-btn sl-btn--ghost sl-btn--sm" disabled={busyId === item.id || !reasons[item.id]} onClick={() => review(item, 'Deficient')}><X size={14} /> Deficient</button>
+                      <button className="sl-btn sl-btn--primary sl-btn--sm" disabled={busyId === item.id} onClick={() => review(item, 'Verified')}><Check size={14} /> Verify</button>
+                    </div>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {canReview && app.checklist.some(i => i.status === 'Uploaded') && (
+          <button className="sl-btn sl-btn--secondary sl-btn--sm sl-mt-4" disabled={!!busyId} onClick={async () => { for (const i of app.checklist.filter(x => x.status === 'Uploaded')) { try { await apiClient.patch(`/applications/${app.id}/checklist/${i.id}/review`, { decision: 'Verified' }); } catch (e) { toast(e.message, 'error'); break; } } toast('All uploaded documents verified'); reload(); }}><Check size={14} /> Verify all uploaded</button>
+        )}
+      </div>
     </div>
   );
 }
@@ -248,7 +326,8 @@ function Deficiencies({ app, user, meta, reload }) {
 
 function TransitionModal({ app, move, meta, onClose, onDone }) {
   const [remarks, setRemarks] = useState('');
-  const [defs, setDefs] = useState(move.to === 'DEFICIENCY' && !app.deficiencies.some(d => d.status === 'Open') ? [{ category: 'Documents', description: '', severity: 'Major' }] : []);
+  const fromChecklist = app.checklist.filter(i => i.status === 'Deficient').map(i => ({ category: 'Documents', description: `${i.label}: ${i.remarks || 'deficient'}`, severity: 'Major' }));
+  const [defs, setDefs] = useState(move.to === 'DEFICIENCY' && !app.deficiencies.some(d => d.status === 'Open') ? (fromChecklist.length ? fromChecklist : [{ category: 'Documents', description: '', severity: 'Major' }]) : []);
   const in6m = new Date(Date.now() + 180 * 86400000).toISOString().slice(0, 10);
   const [unds, setUnds] = useState(move.to === 'CONDITIONAL' ? [{ category: 'Lease Renewal', title: 'Renew land lease deed and submit registered copy', due_date: in6m }] : []);
   const [busy, setBusy] = useState(false);

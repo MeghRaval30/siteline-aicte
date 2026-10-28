@@ -15,7 +15,7 @@ router.get('/overview', h(async (req, res) => {
   const iScope = instScope(user);
 
   const [apps, docs, undertakings, visits, alerts, regions, transitions] = await Promise.all([
-    prisma.application.findMany({ where: aScope, include: { institution: { include: { region: true } } } }),
+    prisma.application.findMany({ where: aScope, include: { institution: { include: { region: true } }, checklist: { select: { status: true, required: true } } } }),
     prisma.complianceDocument.findMany({ where: { institution: iScope, status: { not: 'Superseded' } }, include: { institution: true } }),
     prisma.undertaking.findMany({ where: { institution: iScope }, include: { institution: true } }),
     prisma.eVCVisit.findMany({
@@ -112,7 +112,7 @@ router.get('/overview', h(async (req, res) => {
 
   ok(res, {
     role: user.role, kpis, pipeline, buckets, heatmap, outcomes, months, adherence, top_alerts, upcoming_visits, longest_pending, compliance, institution,
-    my_applications: user.role === 'Institution' ? apps.map(a => ({ ...a, sla: slaInfo(a, now), stage_label: STAGES[a.stage].label })) : undefined,
+    my_applications: user.role === 'Institution' ? apps.map(({ checklist, ...a }) => ({ ...a, sla: slaInfo(a, now), stage_label: STAGES[a.stage].label, docs_missing: checklist.filter(i => i.required && i.status === 'Pending').length, docs_deficient: checklist.filter(i => i.status === 'Deficient').length })) : undefined,
     expiring_docs: docs.filter(d => ['Expiring Soon', 'Expired'].includes(d.status)).sort((a, b) => a.valid_to - b.valid_to).slice(0, 8),
     due_undertakings: undertakings.filter(u => ['Pending', 'Overdue'].includes(u.status)).sort((a, b) => a.due_date - b.due_date).slice(0, 8),
     pending_reports: user.role === 'Expert' ? visits.filter(v => v.status === 'Scheduled' && v.visit_date < now) : undefined,

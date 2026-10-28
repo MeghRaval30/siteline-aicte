@@ -101,6 +101,27 @@ model Application {
   evc_visits       EVCVisit[]
   undertakings     Undertaking[]
   documents        ComplianceDocument[]
+  checklist        ChecklistItem[]
+}
+
+// One mandatory submission document of an application (see shared/checklist.js)
+model ChecklistItem {
+  id             Int       @id @default(autoincrement())
+  application_id Int
+  item_key       String
+  label          String
+  required       Boolean   @default(true)
+  status         String    @default("Pending") // Pending, Uploaded, Verified, Deficient
+  file_name      String?
+  file_url       String?
+  remarks        String?
+  uploaded_at    DateTime?
+  verified_by    String?
+  verified_at    DateTime?
+
+  application Application @relation(fields: [application_id], references: [id])
+
+  @@unique([application_id, item_key])
 }
 
 model StageTransition {

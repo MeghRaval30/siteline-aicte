@@ -7,6 +7,7 @@ const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { STAGES, DAY } = require('../shared/workflow');
+const { template } = require('../shared/checklist');
 
 const prisma = new PrismaClient();
 
@@ -95,7 +96,7 @@ const PLAN = [['SUBMITTED', 6], ['SCRUTINY', 14], ['DEFICIENCY', 9], ['RESCRUTIN
 
 async function main() {
   console.log('Clearing database...');
-  for (const m of ['alert', 'alertRule', 'notification', 'activityLog', 'conversationSession', 'eVCMember', 'eVCVisit', 'deficiency', 'undertaking', 'complianceDocument', 'stageTransition', 'application', 'user', 'institution', 'region']) {
+  for (const m of ['alert', 'alertRule', 'notification', 'activityLog', 'conversationSession', 'checklistItem', 'eVCMember', 'eVCVisit', 'deficiency', 'undertaking', 'complianceDocument', 'stageTransition', 'application', 'user', 'institution', 'region']) {
     await prisma[m].deleteMany();
   }
 
@@ -233,6 +234,26 @@ async function main() {
       ] },
     } });
 
+    // submission checklist, consistent with how far the application has got
+    const tpl = template(type);
+    const defKeys = final === 'DEFICIENCY' ? (opts.deficientKeys || [pick(tpl.filter(t => t.required)).item_key]) : [];
+    await prisma.checklistItem.createMany({ data: tpl.map((t, i) => {
+      let status = 'Verified';
+      if (final === 'SUBMITTED') status = i >= tpl.length - 2 && rand() < 0.5 ? 'Pending' : 'Uploaded';
+      else if (final === 'SCRUTINY') status = rand() < 0.5 ? 'Verified' : 'Uploaded';
+      else if (final === 'DEFICIENCY') status = defKeys.includes(t.item_key) ? 'Deficient' : 'Verified';
+      else if (final === 'RESCRUTINY') status = rand() < 0.35 ? 'Uploaded' : 'Verified';
+      const reviewed = ['Verified', 'Deficient'].includes(status);
+      return {
+        ...t, application_id: app.id, status,
+        file_name: status === 'Pending' ? null : `${t.item_key.replace(/_/g, '-')}.pdf`,
+        uploaded_at: status === 'Pending' ? null : submitted,
+        verified_by: reviewed ? officer.name : null,
+        verified_at: reviewed ? submitted : null,
+        remarks: status === 'Deficient' ? (opts.deficientRemarks?.[t.item_key] || 'Not as per APH format; resubmit the complete document') : null,
+      };
+    }) });
+
     // deficiencies
     if (path.includes('DEFICIENCY')) {
       const defHop = hops.find(h => h.to === 'DEFICIENCY');
@@ -293,7 +314,9 @@ async function main() {
     { cat: 'Faculty Recruitment', title: 'Recruit 6 additional faculty for the increased intake', due: 12 },
     { cat: 'Lease Renewal', title: 'Renew land lease deed and submit registered copy', due: 28 },
   ] });
-  await makeApp(demoInst, 'DEFICIENCY', { curDays: 9, slow: false, type: 'New Course', defCats: ['Laboratory', 'Faculty'] });
+  await makeApp(demoInst, 'DEFICIENCY', { curDays: 9, slow: false, type: 'New Course', defCats: ['Laboratory', 'Faculty'],
+    deficientKeys: ['lab_library', 'faculty_list'],
+    deficientRemarks: { lab_library: 'Robotics lab equipment list incomplete; invoices missing', faculty_list: 'Two professors lack PhD as required for the cadre' } });
 
   // A few apps for the expert's own panel
   for (const kind of queue) {

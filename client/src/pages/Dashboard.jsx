@@ -240,7 +240,9 @@ function InstitutionHome({ d, navigate }) {
           <div className="sl-card__body">
             {d.my_applications.map(a => (
               <div key={a.id} className="aq-list-item sl-flex sl-justify-between sl-items-center sl-cursor-pointer" onClick={() => navigate(`/applications/${a.id}`)}>
-                <div><div className="sl-font-medium sl-text-sm">{a.type}</div><div className="sl-text-xs sl-text-muted">{a.app_number} · submitted {fmtDate(a.submitted_at)}</div></div>
+                <div><div className="sl-font-medium sl-text-sm">{a.type}</div><div className="sl-text-xs sl-text-muted">{a.app_number} · submitted {fmtDate(a.submitted_at)}</div>
+                  {a.docs_missing > 0 && <div className="sl-text-xs aq-tone-warning">{a.docs_missing} mandatory document(s) to upload</div>}
+                  {a.docs_deficient > 0 && <div className="sl-text-xs sl-text-danger">{a.docs_deficient} document(s) marked deficient</div>}</div>
                 <div className="sl-flex sl-items-center sl-gap-3"><StageBadge stage={a.stage} /><SlaPill sla={a.sla} /></div>
               </div>
             ))}

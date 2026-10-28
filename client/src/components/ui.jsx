@@ -46,6 +46,7 @@ const STATUS_TONE = {
   Open: 'danger', Responded: 'accent', Accepted: 'success', Scheduled: 'info', Completed: 'success', Cancelled: 'neutral', Rescheduled: 'warning',
   Acknowledged: 'warning', Resolved: 'success', 'In Process': 'info', Approved: 'success', 'Conditionally Approved': 'accent', Withdrawn: 'neutral',
   Active: 'success', 'Under Show-Cause': 'danger', Suspended: 'danger',
+  Deficient: 'danger', 'Not uploaded': 'warning', 'Awaiting verification': 'info',
 };
 export const StatusBadge = ({ status }) => <span className={`sl-badge sl-badge--${STATUS_TONE[status] || 'neutral'}`}>{status}</span>;
 
