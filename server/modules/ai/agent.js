@@ -1,83 +1,124 @@
 const { TOOL_SCHEMAS, TOOL_FUNCTIONS } = require('./tools');
+const { chat } = require('../../shared/llm');
 
-const OLLAMA_URL = 'http://localhost:11434/api/chat';
-const MODEL = 'qwen2.5:7b-instruct';
-const MAX_ITERATIONS = 6;
+const MAX_ITERATIONS = 5;
 
-const SYSTEM_PROMPT = `You are SiteLine AI, an intelligent assistant for enterprise asset management. You have access to a real database with 500+ assets, 50+ employees, and 12 departments.
+const SYSTEM_PROMPT = `You are SiteLine AI, the assistant inside AICTE's approval workflow and compliance monitoring system.
+You answer questions about institution applications moving through approval stages (Submitted, Scrutiny, Deficiency, Re-Scrutiny, Expert Visit Committee (EVC), Executive Committee, SAC appeal, SHC hearing), stage-wise pendency and SLA breaches, EVC scheduling, time-bound undertakings from conditional approvals, compliance documents and their validity (lease deeds, fire NOCs, etc.), institution compliance scores and alerts.
+Always call a tool to get real data before answering. Be concise and specific: quote application numbers, institution names, dates and counts. Use short bullet lists. Never invent data.`;
 
-When answering questions:
-1. Think about which tools to use
-2. Call the appropriate tools to gather data
-3. Analyze the results
-4. If you need more info, call more tools
-5. Provide specific, data-driven answers with numbers and names
-
-Available asset categories: Laptops, Desktops, Monitors, Printers, Servers, Network Equipment, Phones, Tablets, Furniture, Vehicles, Lab Equipment, Safety Equipment, AV Equipment, Power Tools, HVAC Systems
-Asset statuses: Available, Allocated, In Maintenance, Retired, Lost
-Maintenance priorities: Critical, High, Medium, Low
-Allocation statuses: Active, Returned, Overdue
-
-Always be helpful, concise, and reference specific data from your tool calls.`;
-
-async function runAgent(userMessage, conversationHistory = []) {
-  const messages = [
-    { role: 'system', content: SYSTEM_PROMPT },
-    ...conversationHistory,
-    { role: 'user', content: userMessage }
-  ];
-  const trace = [];
-
-  for (let i = 0; i < MAX_ITERATIONS; i++) {
-    let response;
-    try {
-      const res = await fetch(OLLAMA_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: MODEL, messages, tools: TOOL_SCHEMAS, stream: false }),
-        signal: AbortSignal.timeout(120000)
-      });
-      response = await res.json();
-    } catch (err) {
-      throw new Error(`Ollama connection failed: ${err.message}`);
-    }
-
-    const msg = response.message;
-    if (!msg) throw new Error('No response from Ollama');
-    messages.push(msg);
-
-    if (!msg.tool_calls || msg.tool_calls.length === 0) {
-      return { answer: msg.content || 'No response generated.', trace };
-    }
-
-    for (const toolCall of msg.tool_calls) {
-      const fnName = toolCall.function?.name;
-      const fn = TOOL_FUNCTIONS[fnName];
-      let result;
-      try {
-        result = fn ? await fn(toolCall.function.arguments || {}) : { error: `Unknown tool: ${fnName}` };
-      } catch (e) {
-        result = { error: e.message };
-      }
-      trace.push({ tool: fnName, arguments: toolCall.function?.arguments || {}, result });
-      messages.push({ role: 'tool', content: JSON.stringify(result) });
-    }
+// Deterministic intent router: the floor under the feature, so the assistant
+// still answers when no local model is running. It says plainly that it ran.
+function route(q) {
+  const t = q.toLowerCase();
+  const days = Number((t.match(/(\d+)\s*day/) || [])[1]) || undefined;
+  const appNo = (q.match(/APH\/[\w/]+/i) || [])[0];
+  if (appNo) return ['application_status', { query: appNo }];
+  if (/status of|where is|track/.test(t)) {
+    const name = q.replace(/.*(status of|where is|track)\s*/i, '').replace(/[?.]$/, '');
+    return ['application_status', { query: name }];
   }
+  if (/alert|critical|urgent/.test(t)) return ['open_alerts', /critical/.test(t) ? { severity: 'Critical' } : {}];
+  if (/undertaking|condition/.test(t)) return ['undertakings_status', /overdue/.test(t) ? { status: 'Overdue' } : {}];
+  if (/lease|noc|document|certificate|expir|validity|renew/.test(t)) {
+    const doc = /lease/.test(t) ? 'Lease' : /fire|noc/.test(t) ? 'Fire' : undefined;
+    return ['expiring_documents', { days: days || 60, doc_type: doc, include_expired: /expired|lapsed/.test(t) }];
+  }
+  if (/evc|visit|expert|inspection/.test(t)) return ['evc_schedule', /report/.test(t) ? { pending_reports: true } : { days: days || 30 }];
+  if (/score|complian|risk|worst|best|rank/.test(t)) return ['compliance_ranking', { best: /best|top|highest/.test(t) }];
+  if (/profile|about|tell me about|institute of|college/.test(t)) {
+    const name = q.replace(/.*(profile of|about|tell me about)\s*/i, '').replace(/[?.]$/, '');
+    return ['institution_profile', { name }];
+  }
+  if (/stuck|breach|sla|delay|overdue|longest/.test(t)) return ['list_applications', { sla_breached: true }];
+  const stage = /re-?scrutiny/.test(t) ? 'RESCRUTINY' : /scrutiny/.test(t) ? 'SCRUTINY' : /deficien/.test(t) ? 'DEFICIENCY' : /\bsac\b|appeal/.test(t) ? 'SAC' : /\bshc\b|hearing/.test(t) ? 'SHC' : /executive|\bec\b/.test(t) ? 'EC_REVIEW' : null;
+  if (stage) return ['list_applications', { stage }];
+  return ['pendency_by_stage', {}];
+}
 
-  // Force final answer after max iterations
-  messages.push({ role: 'user', content: 'Please provide your final answer based on the data gathered so far.' });
+function summarize(tool, r) {
+  if (r?.error) return r.error;
+  const lines = [];
+  switch (tool) {
+    case 'pendency_by_stage':
+      lines.push('Stage-wise pendency right now:');
+      r.forEach(x => lines.push(`• ${x.stage}: ${x.pending} pending (${x.sla_breached} past the ${x.sla_days}-day SLA), avg ${x.avg_days_in_stage} days`));
+      break;
+    case 'list_applications':
+      lines.push(`${r.total} application(s) found${r.total > r.applications.length ? `, showing ${r.applications.length}` : ''}:`);
+      r.applications.forEach(a => lines.push(`• ${a.app_number} — ${a.institution} (${a.type}) at ${a.stage}, ${a.days_in_stage} days${a.breached ? ` ⚠ SLA ${a.sla_days}d breached` : ''}`));
+      break;
+    case 'application_status':
+      lines.push(`${r.app_number} — ${r.institution}`, `${r.type} · ${r.status} · currently at ${r.stage} for ${r.days_in_stage} days${r.sla_breached ? ` (SLA ${r.sla_days}d breached)` : ''}`, '', 'History:');
+      r.history.forEach(x => lines.push(`• ${x}`));
+      if (r.open_deficiencies.length) { lines.push('', 'Open deficiencies:'); r.open_deficiencies.forEach(x => lines.push(`• ${x}`)); }
+      if (r.evc_visits.length) { lines.push('', 'EVC:'); r.evc_visits.forEach(x => lines.push(`• ${x}`)); }
+      if (r.undertakings.length) { lines.push('', 'Undertakings:'); r.undertakings.forEach(x => lines.push(`• ${x}`)); }
+      break;
+    case 'expiring_documents':
+      lines.push(`${r.total} document(s) need attention:`);
+      r.documents.forEach(d => lines.push(`• ${d.institution} — ${d.document}, ${d.status === 'Expired' ? `EXPIRED ${d.valid_to}` : `valid till ${d.valid_to} (${d.days_left} days)`}`));
+      break;
+    case 'undertakings_status':
+      lines.push(`${r.total} undertaking(s), ${r.overdue} overdue:`);
+      r.undertakings.forEach(u => lines.push(`• ${u.institution} — ${u.undertaking}, due ${u.due} [${u.status}]`));
+      break;
+    case 'evc_schedule':
+      lines.push(`${r.total} visit(s):`);
+      r.visits.forEach(v => lines.push(`• ${v.date} — ${v.institution} (${v.application}), ${v.mode}. Panel: ${v.panel}`));
+      break;
+    case 'compliance_ranking':
+      lines.push('Compliance health ranking:');
+      r.forEach(x => lines.push(`• ${x.institution} — ${x.score}/100 (grade ${x.grade}, ${x.risk} risk)${x.issues.length ? ': ' + x.issues.join('; ') : ''}`));
+      break;
+    case 'institution_profile':
+      lines.push(`${r.name} (${r.aicte_id}) — ${r.type}, ${r.city}, ${r.state} · ${r.region}`, `Compliance score ${r.compliance_score}/100, grade ${r.grade}. Status: ${r.status}`);
+      if (r.issues.length) { lines.push('', 'Issues:'); r.issues.forEach(x => lines.push(`• ${x}`)); }
+      lines.push('', 'Applications:'); r.applications.forEach(x => lines.push(`• ${x}`));
+      break;
+    case 'open_alerts':
+      lines.push(`${r.total} open alert(s), ${r.critical} critical:`);
+      r.alerts.forEach(a => lines.push(`• [${a.severity}] ${a.title}${a.institution ? ' — ' + a.institution : ''}`));
+      break;
+  }
+  return lines.join('\n');
+}
+
+async function runOffline(userMessage, user) {
+  const [tool, args] = route(userMessage);
+  const result = await TOOL_FUNCTIONS[tool](args, user);
+  return { answer: summarize(tool, result), trace: [{ tool, arguments: args, result }], engine: 'keyword' };
+}
+
+async function runAgent(userMessage, conversationHistory = [], user) {
+  const messages = [{ role: 'system', content: SYSTEM_PROMPT }, ...conversationHistory, { role: 'user', content: userMessage }];
+  const trace = [];
   try {
-    const res = await fetch(OLLAMA_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: MODEL, messages, stream: false }),
-      signal: AbortSignal.timeout(120000)
-    });
-    const final = await res.json();
-    return { answer: final.message?.content || 'Unable to generate response.', trace };
-  } catch {
-    return { answer: 'Max iterations reached. Here is what I found so far.', trace };
+    for (let i = 0; i < MAX_ITERATIONS; i++) {
+      const { message: msg, model } = await chat(messages, { tools: TOOL_SCHEMAS, timeout: 120000 });
+      messages.push(msg);
+      if (!msg.tool_calls || msg.tool_calls.length === 0) {
+        if (!trace.length) {
+          // The model answered without looking anything up; ground it with the router.
+          const off = await runOffline(userMessage, user);
+          return { ...off, engine: 'keyword' };
+        }
+        return { answer: msg.content || 'No response generated.', trace, engine: model };
+      }
+      for (const call of msg.tool_calls) {
+        const name = call.function?.name;
+        let args = call.function?.arguments || {};
+        if (typeof args === 'string') { try { args = JSON.parse(args); } catch { args = {}; } }
+        let result;
+        try { result = TOOL_FUNCTIONS[name] ? await TOOL_FUNCTIONS[name](args, user) : { error: `Unknown tool ${name}` }; } catch (e) { result = { error: e.message }; }
+        trace.push({ tool: name, arguments: args, result });
+        messages.push({ role: 'tool', content: JSON.stringify(result).slice(0, 6000) });
+      }
+    }
+    return { answer: trace.length ? summarize(trace[trace.length - 1].tool, trace[trace.length - 1].result) : 'No answer.', trace, engine: 'keyword' };
+  } catch (err) {
+    return runOffline(userMessage, user);
   }
 }
 
-module.exports = { runAgent };
+module.exports = { runAgent, runOffline };

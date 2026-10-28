@@ -14,7 +14,7 @@ const authenticate = async (req, res, next) => {
     // Verify user is not inactive
     const user = await prisma.user.findUnique({
       where: { id: decoded.user_id },
-      select: { id: true, role: true, department_id: true, status: true, email: true, name: true }
+      select: { id: true, role: true, region_id: true, institution_id: true, status: true, email: true, name: true, state: true }
     });
 
     if (!user) {

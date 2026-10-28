@@ -1,0 +1,12 @@
+{
+  "name": "siteline-aicte",
+  "version": "3.0.0",
+  "private": true,
+  "description": "AICTE approval workflow, compliance monitoring and alert management (SIH26262)",
+  "scripts": {
+    "setup": "npm install --prefix server && npm install --prefix client && node -e \"require('fs').existsSync('server/.env')||require('fs').copyFileSync('server/.env.example','server/.env')\" && npm run setup --prefix server && npm run build --prefix client",
+    "start": "npm start --prefix server",
+    "seed": "npm run seed --prefix server",
+    "e2e": "npm run e2e --prefix server"
+  }
+}

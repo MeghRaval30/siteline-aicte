@@ -3,12 +3,14 @@ import { Bot, Send, Trash2, ChevronDown, ChevronRight, Sparkles } from 'lucide-r
 import { apiClient } from '../api/client';
 
 const SUGGESTIONS = [
-  'How many assets are in maintenance?',
-  'Show overdue returns',
-  'Which department has the most assets?',
-  'List all critical maintenance requests',
-  'Give me a summary of the IT department',
-  'How many laptops are available?',
+  'How many applications are pending at each stage?',
+  'Which applications are stuck past their SLA?',
+  'Which lease deeds expire in the next 60 days?',
+  'Show overdue undertakings',
+  'Which institutions have the worst compliance score?',
+  'What EVC visits are coming up this week?',
+  'What is the status of Sahyadri Institute of Technology?',
+  'List critical alerts',
 ];
 
 export default function AIChat() {
@@ -16,6 +18,7 @@ export default function AIChat() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [sessionId, setSessionId] = useState(null);
+  const [fast, setFast] = useState(false);
   const [expandedTraces, setExpandedTraces] = useState({});
   const messagesEndRef = useRef(null);
 
@@ -28,11 +31,11 @@ export default function AIChat() {
     setMessages(prev => [...prev, { role: 'user', content: msg }]);
     setLoading(true);
     try {
-      const data = await apiClient.post('/ai/chat', { message: msg, session_id: sessionId });
+      const data = await apiClient.post('/ai/chat', { message: msg, session_id: sessionId, fast });
       if (data.session_id) setSessionId(data.session_id);
-      setMessages(prev => [...prev, { role: 'assistant', content: data.answer || 'No response', trace: data.trace || [], offline: data.offline }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: data.answer || 'No response', trace: data.trace || [], engine: data.engine }]);
     } catch (err) {
-      setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${err.message}. Make sure Ollama is running.`, trace: [] }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${err.message}`, trace: [] }]);
     }
     setLoading(false);
   };
@@ -49,8 +52,11 @@ export default function AIChat() {
   return (
     <div className="sl-chat">
       <div className="sl-flex sl-items-center sl-justify-between sl-mb-4">
-        <div><h1 className="sl-page__title">AI Assistant</h1><p className="sl-page__subtitle">Ask anything about your assets, powered by Ollama</p></div>
-        {messages.length > 0 && <button className="sl-btn sl-btn--ghost" onClick={clearChat}><Trash2 size={16} /> New Chat</button>}
+        <div><h1 className="sl-page__title">AI Assistant</h1><p className="sl-page__subtitle">Ask about pendency, SLAs, EVCs, undertakings and document validity. Runs on a local model; no data leaves the server.</p></div>
+        <div className="sl-flex sl-gap-2 sl-items-center">
+          <label className="sl-text-xs sl-text-muted sl-flex sl-items-center sl-gap-1" title="Skip the language model and use the instant keyword router"><input type="checkbox" checked={fast} onChange={e => setFast(e.target.checked)} /> Instant mode</label>
+          {messages.length > 0 && <button className="sl-btn sl-btn--ghost" onClick={clearChat}><Trash2 size={16} /> New Chat</button>}
+        </div>
       </div>
 
       <div className="sl-chat__messages">
@@ -58,7 +64,7 @@ export default function AIChat() {
           <div className="sl-chat__welcome">
             <div className="sl-chat__welcome-icon"><Sparkles size={28} /></div>
             <h2 className="sl-chat__welcome-title">SiteLine AI</h2>
-            <p className="sl-chat__welcome-subtitle">I can query your asset database, find overdue returns, check maintenance status, and more. Ask me anything!</p>
+            <p className="sl-chat__welcome-subtitle">I query the live approval and compliance data through tools, and every answer shows its reasoning trace. Answers respect your role: institutions only see their own data.</p>
             <div className="sl-chat__suggestions">
               {SUGGESTIONS.map(s => <button key={s} className="sl-chat__suggestion" onClick={() => sendMessage(s)}>{s}</button>)}
             </div>
@@ -69,6 +75,7 @@ export default function AIChat() {
               <div className="sl-chat__message-avatar">{msg.role === 'user' ? 'You' : 'AI'}</div>
               <div className="sl-chat__message-content">
                 <div className="sl-chat__message-bubble" style={{whiteSpace: 'pre-wrap'}}>{msg.content}</div>
+                {msg.engine && <div className="aq-engine sl-mt-1">{msg.engine === 'keyword' ? 'answered by keyword router' : `answered by ${msg.engine}`}</div>}
                 {msg.trace && msg.trace.length > 0 && (
                   <div className="sl-chat__trace">
                     <button className="sl-chat__trace-toggle" onClick={() => toggleTrace(i)}>
@@ -107,7 +114,7 @@ export default function AIChat() {
 
       <div className="sl-chat__input-area">
         <div className="sl-chat__input-wrapper">
-          <input className="sl-chat__input" placeholder="Ask about your assets..." value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendMessage()} disabled={loading} id="ai-chat-input" />
+          <input className="sl-chat__input" placeholder="Ask about applications, EVCs, documents, undertakings…" value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendMessage()} disabled={loading} id="ai-chat-input" />
           <button className="sl-chat__send" onClick={() => sendMessage()} disabled={!input.trim() || loading} id="ai-chat-send"><Send size={16} /></button>
         </div>
       </div>

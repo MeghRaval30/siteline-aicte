@@ -1,146 +1,130 @@
 const prisma = require('../../shared/prismaClient');
+const { STAGES, ACTIVE_STAGES, slaInfo, DAY } = require('../../shared/workflow');
+const { institutionScores } = require('../../shared/compliance');
+const { appScope, instScope } = require('../../shared/scope');
 
-/** Search/filter assets */
-async function queryAssets({ category, status, location, search, limit = 20 }) {
-  try {
-    const where = {};
-    if (category) where.category = { name: { contains: category } };
-    if (status) where.status = status;
-    if (location) where.location = { contains: location };
-    if (search) where.OR = [{ name: { contains: search } }, { asset_tag: { contains: search } }];
-    const assets = await prisma.asset.findMany({ where, take: parseInt(limit), include: { category: true }, orderBy: { id: 'asc' } });
-    return assets.map(a => ({ id: a.id, asset_tag: a.asset_tag, name: a.name, category: a.category?.name, status: a.status, condition: a.condition, location: a.location, is_bookable: a.is_bookable }));
-  } catch (e) { return { error: e.message }; }
-}
+const fmt = d => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+const stageCode = s => {
+  if (!s) return null;
+  const up = String(s).toUpperCase().replace(/[^A-Z_]/g, '');
+  if (STAGES[up]) return up;
+  const hit = Object.entries(STAGES).find(([, v]) => v.label.toUpperCase().includes(String(s).toUpperCase()) || v.short.toUpperCase() === String(s).toUpperCase());
+  return hit ? hit[0] : null;
+};
+const regionWhere = async region => {
+  if (!region) return {};
+  const r = await prisma.region.findFirst({ where: { OR: [{ code: String(region).toUpperCase() }, { name: { contains: region } }, { city: { contains: region } }] } });
+  return r ? { region_id: r.id } : {};
+};
 
-/** Full detail on one asset */
-async function getAssetDetail({ asset_tag }) {
-  try {
-    const asset = await prisma.asset.findUnique({ where: { asset_tag }, include: { category: true, allocations: { include: { holder_user: true, allocator: true }, orderBy: { allocated_at: 'desc' }, take: 5 }, maintenance_requests: { orderBy: { created_at: 'desc' }, take: 5 } } });
-    if (!asset) return { error: 'Asset not found' };
-    return { id: asset.id, asset_tag: asset.asset_tag, name: asset.name, category: asset.category?.name, status: asset.status, condition: asset.condition, location: asset.location, acquisition_cost: asset.acquisition_cost, acquisition_date: asset.acquisition_date, current_allocation: asset.allocations.find(a => a.status === 'Active'), allocation_count: asset.allocations.length, maintenance_count: asset.maintenance_requests.length, recent_maintenance: asset.maintenance_requests.slice(0, 3).map(m => ({ issue: m.issue_description, priority: m.priority, status: m.status })) };
-  } catch (e) { return { error: e.message }; }
-}
+// Every tool takes (args, user) so answers respect the asker's scope.
+const TOOL_FUNCTIONS = {
+  async pendency_by_stage(args, user) {
+    const inst = await regionWhere(args.region);
+    const apps = await prisma.application.findMany({ where: { AND: [appScope(user), { stage: { in: ACTIVE_STAGES } }, { institution: inst }] } });
+    return ACTIVE_STAGES.map(s => {
+      const here = apps.filter(a => a.stage === s).map(a => slaInfo(a));
+      return { stage: STAGES[s].label, sla_days: STAGES[s].sla_days, pending: here.length, sla_breached: here.filter(x => x.breached).length, avg_days_in_stage: here.length ? Math.round(here.reduce((t, x) => t + x.days, 0) / here.length) : 0 };
+    }).filter(r => r.pending > 0);
+  },
 
-/** Who currently holds an asset */
-async function whoHasAsset({ asset_tag }) {
-  try {
-    const asset = await prisma.asset.findUnique({ where: { asset_tag }, include: { allocations: { where: { status: 'Active' }, include: { holder_user: true, holder_department: true } } } });
-    if (!asset) return { error: 'Asset not found' };
-    const alloc = asset.allocations[0];
-    if (!alloc) return { asset_tag, status: asset.status, holder: 'Nobody — asset is not currently allocated' };
-    return { asset_tag, holder: alloc.holder_user?.name || alloc.holder_department?.name || 'Unknown', allocated_since: alloc.allocated_at, expected_return: alloc.expected_return_date };
-  } catch (e) { return { error: e.message }; }
-}
+  async list_applications(args, user) {
+    const where = { AND: [appScope(user)] };
+    const st = stageCode(args.stage);
+    if (st) where.AND.push({ stage: st });
+    if (args.type) where.AND.push({ type: { contains: args.type } });
+    if (args.institution) where.AND.push({ institution: { name: { contains: args.institution } } });
+    if (args.region) where.AND.push({ institution: await regionWhere(args.region) });
+    let apps = (await prisma.application.findMany({ where, include: { institution: true }, orderBy: { stage_entered_at: 'asc' } })).map(a => ({ a, s: slaInfo(a) }));
+    if (args.sla_breached) apps = apps.filter(x => x.s.breached);
+    if (args.min_days) apps = apps.filter(x => x.s.days >= Number(args.min_days));
+    return { total: apps.length, applications: apps.slice(0, Number(args.limit) || 12).map(({ a, s }) => ({ app_number: a.app_number, institution: a.institution.name, type: a.type, stage: STAGES[a.stage].label, days_in_stage: s.days, sla_days: s.sla_days, breached: s.breached })) };
+  },
 
-/** All assets held by an employee */
-async function getEmployeeAssets({ employee_name }) {
-  try {
-    const users = await prisma.user.findMany({ where: { name: { contains: employee_name } } });
-    if (users.length === 0) return { error: `No employee found matching "${employee_name}"` };
-    const allocations = await prisma.allocation.findMany({ where: { holder_user_id: { in: users.map(u => u.id) }, status: 'Active' }, include: { asset: { include: { category: true } }, holder_user: true } });
-    return allocations.map(a => ({ employee: a.holder_user?.name, asset: a.asset?.name, asset_tag: a.asset?.asset_tag, category: a.asset?.category?.name, since: a.allocated_at }));
-  } catch (e) { return { error: e.message }; }
-}
+  async application_status(args, user) {
+    const a = await prisma.application.findFirst({
+      where: { AND: [appScope(user), { OR: [{ app_number: { contains: args.query } }, { institution: { name: { contains: args.query } } }] }] },
+      include: { institution: true, transitions: { orderBy: { created_at: 'asc' } }, deficiencies: true, evc_visits: true, undertakings: true },
+      orderBy: { created_at: 'desc' },
+    });
+    if (!a) return { error: `No application matching "${args.query}"` };
+    const s = slaInfo(a);
+    return {
+      app_number: a.app_number, institution: a.institution.name, type: a.type, status: a.status, stage: STAGES[a.stage].label,
+      days_in_stage: s.days, sla_days: s.sla_days, sla_breached: s.breached, submitted: fmt(a.submitted_at),
+      history: a.transitions.map(t => `${fmt(t.created_at)}: ${t.from_stage ? STAGES[t.from_stage].short + ' → ' : ''}${STAGES[t.to_stage].short}${t.sla_breached ? ' (SLA breached)' : ''}`),
+      open_deficiencies: a.deficiencies.filter(d => d.status === 'Open').map(d => `${d.category}: ${d.description}`),
+      evc_visits: a.evc_visits.map(v => `${fmt(v.visit_date)} ${v.status}${v.recommendation ? ' — ' + v.recommendation : ''}`),
+      undertakings: a.undertakings.map(u => `${u.title} due ${fmt(u.due_date)} (${u.status})`),
+    };
+  },
 
-/** Count matching assets */
-async function countAssets({ category, status, location }) {
-  try {
-    const where = {};
-    if (category) where.category = { name: { contains: category } };
-    if (status) where.status = status;
-    if (location) where.location = { contains: location };
-    const count = await prisma.asset.count({ where });
-    return { count, filters: { category, status, location } };
-  } catch (e) { return { error: e.message }; }
-}
+  async expiring_documents(args, user) {
+    const days = Number(args.days) || 60;
+    const where = { AND: [{ institution: { ...instScope(user), ...(await regionWhere(args.region)) } }] };
+    if (args.doc_type) where.AND.push({ doc_type: { contains: args.doc_type } });
+    if (args.include_expired) where.AND.push({ OR: [{ status: 'Expired' }, { valid_to: { gte: new Date(), lte: new Date(Date.now() + days * DAY) }, status: { in: ['Valid', 'Expiring Soon'] } }] });
+    else where.AND.push({ valid_to: { gte: new Date(), lte: new Date(Date.now() + days * DAY) }, status: { in: ['Valid', 'Expiring Soon'] } });
+    const docs = await prisma.complianceDocument.findMany({ where, include: { institution: true }, orderBy: { valid_to: 'asc' } });
+    return { total: docs.length, documents: docs.slice(0, 15).map(d => ({ institution: d.institution.name, document: d.doc_type, valid_to: fmt(d.valid_to), status: d.status, days_left: Math.ceil((d.valid_to - Date.now()) / DAY) })) };
+  },
 
-/** List maintenance requests */
-async function listMaintenanceRequests({ status, priority }) {
-  try {
-    const where = {};
-    if (status) where.status = status;
-    if (priority) where.priority = priority;
-    const requests = await prisma.maintenanceRequest.findMany({ where, take: 20, include: { asset: true, raiser: true }, orderBy: { created_at: 'desc' } });
-    return requests.map(r => ({ id: r.id, asset: r.asset?.name, asset_tag: r.asset?.asset_tag, issue: r.issue_description, priority: r.priority, status: r.status, raised_by: r.raiser?.name, date: r.created_at }));
-  } catch (e) { return { error: e.message }; }
-}
+  async undertakings_status(args, user) {
+    const where = { AND: [{ institution: instScope(user) }] };
+    if (args.status) where.AND.push({ status: args.status });
+    else where.AND.push({ status: { in: ['Pending', 'Overdue', 'Submitted'] } });
+    const rows = await prisma.undertaking.findMany({ where, include: { institution: true }, orderBy: { due_date: 'asc' } });
+    return { total: rows.length, overdue: rows.filter(r => r.status === 'Overdue').length, undertakings: rows.slice(0, 15).map(u => ({ institution: u.institution.name, undertaking: u.title, due: fmt(u.due_date), status: u.status })) };
+  },
 
-/** Get overdue allocations */
-async function getOverdueAllocations() {
-  try {
-    const overdue = await prisma.allocation.findMany({ where: { status: 'Active', expected_return_date: { lt: new Date() } }, include: { asset: true, holder_user: true } });
-    return overdue.map(a => ({ asset: a.asset?.name, asset_tag: a.asset?.asset_tag, holder: a.holder_user?.name, expected_return: a.expected_return_date, days_overdue: Math.floor((Date.now() - new Date(a.expected_return_date)) / 86400000) }));
-  } catch (e) { return { error: e.message }; }
-}
+  async evc_schedule(args, user) {
+    const days = Number(args.days) || 30;
+    const where = { AND: [{ application: appScope(user) }] };
+    if (args.pending_reports) where.AND.push({ status: 'Scheduled', visit_date: { lt: new Date() } });
+    else where.AND.push({ status: 'Scheduled', visit_date: { gte: new Date(), lte: new Date(Date.now() + days * DAY) } });
+    if (user.role === 'Expert') where.AND.push({ members: { some: { user_id: user.id } } });
+    const visits = await prisma.eVCVisit.findMany({ where, include: { application: { include: { institution: true } }, members: { include: { user: true } } }, orderBy: { visit_date: 'asc' } });
+    return { total: visits.length, visits: visits.slice(0, 15).map(v => ({ date: fmt(v.visit_date), institution: v.application.institution.name, application: v.application.app_number, mode: v.mode, panel: v.members.map(m => m.user.name).join(', ') })) };
+  },
 
-/** Get upcoming bookings */
-async function getUpcomingBookings({ asset_tag, employee_name }) {
-  try {
-    const where = { start_time: { gte: new Date() } };
-    if (asset_tag) where.asset = { asset_tag };
-    const bookings = await prisma.booking.findMany({ where, take: 20, include: { asset: true, user: true }, orderBy: { start_time: 'asc' } });
-    let result = bookings.map(b => ({ asset: b.asset?.name, asset_tag: b.asset?.asset_tag, booked_by: b.user?.name, start: b.start_time, end: b.end_time, purpose: b.purpose, status: b.status }));
-    if (employee_name) result = result.filter(b => b.booked_by?.toLowerCase().includes(employee_name.toLowerCase()));
-    return result;
-  } catch (e) { return { error: e.message }; }
-}
+  async compliance_ranking(args, user) {
+    const where = { ...instScope(user), ...(await regionWhere(args.region)) };
+    const rows = await institutionScores(where);
+    rows.sort((a, b) => args.best ? b.score - a.score : a.score - b.score);
+    return rows.slice(0, Number(args.limit) || 8).map(r => ({ institution: r.inst.name, aicte_id: r.inst.aicte_id, score: r.score, grade: r.grade, risk: r.risk, issues: r.reasons.slice(0, 3).map(x => x.reason) }));
+  },
 
-/** Department overview */
-async function getDepartmentSummary({ department_name }) {
-  try {
-    const dept = await prisma.department.findFirst({ where: { name: { contains: department_name } }, include: { users: true } });
-    if (!dept) return { error: `Department "${department_name}" not found` };
-    const userIds = dept.users.map(u => u.id);
-    const [activeAllocs, overdueAllocs, maintReqs] = await Promise.all([
-      prisma.allocation.count({ where: { holder_user_id: { in: userIds }, status: 'Active' } }),
-      prisma.allocation.count({ where: { holder_user_id: { in: userIds }, status: 'Active', expected_return_date: { lt: new Date() } } }),
-      prisma.maintenanceRequest.count({ where: { raised_by: { in: userIds }, status: { in: ['Pending', 'Approved', 'InProgress'] } } }),
-    ]);
-    return { department: dept.name, employee_count: dept.users.length, employees: dept.users.map(u => u.name), active_allocations: activeAllocs, overdue_allocations: overdueAllocs, open_maintenance: maintReqs };
-  } catch (e) { return { error: e.message }; }
-}
+  async institution_profile(args, user) {
+    const [r] = await institutionScores({ AND: [instScope(user), { OR: [{ name: { contains: args.name } }, { aicte_id: { contains: args.name } }] }] });
+    if (!r) return { error: `No institution matching "${args.name}"` };
+    return {
+      name: r.inst.name, aicte_id: r.inst.aicte_id, type: r.inst.type, city: r.inst.city, state: r.inst.state, region: r.inst.region.name, status: r.inst.status,
+      compliance_score: r.score, grade: r.grade, issues: r.reasons.map(x => x.reason),
+      applications: r.inst.applications.map(a => `${a.app_number} ${a.type}: ${STAGES[a.stage].label}`),
+      documents: r.inst.documents.filter(d => d.status !== 'Superseded').map(d => `${d.doc_type}: ${d.status}${d.valid_to ? ' (till ' + fmt(d.valid_to) + ')' : ''}`),
+    };
+  },
 
-/** Dashboard stats */
-async function getDashboardStats() {
-  try {
-    const [total, available, allocated, maintenance, overdue] = await Promise.all([
-      prisma.asset.count(),
-      prisma.asset.count({ where: { status: 'Available' } }),
-      prisma.asset.count({ where: { status: 'Allocated' } }),
-      prisma.asset.count({ where: { status: 'In Maintenance' } }),
-      prisma.allocation.count({ where: { status: 'Active', expected_return_date: { lt: new Date() } } }),
-    ]);
-    return { total_assets: total, available, allocated, in_maintenance: maintenance, overdue_returns: overdue };
-  } catch (e) { return { error: e.message }; }
-}
+  async open_alerts(args, user) {
+    const where = { status: 'Open', ...(args.severity ? { severity: args.severity } : {}), ...(user.role === 'Admin' ? {} : { institution: instScope(user) }) };
+    const rows = await prisma.alert.findMany({ where, include: { institution: true }, orderBy: { fired_at: 'desc' } });
+    const order = { Critical: 0, High: 1, Medium: 2, Low: 3 };
+    rows.sort((a, b) => order[a.severity] - order[b.severity]);
+    return { total: rows.length, critical: rows.filter(r => r.severity === 'Critical').length, alerts: rows.slice(0, 12).map(a => ({ severity: a.severity, title: a.title, institution: a.institution?.name })) };
+  },
+};
 
-/** Search across assets, users, departments */
-async function searchEverything({ query }) {
-  try {
-    const [assets, users, depts] = await Promise.all([
-      prisma.asset.findMany({ where: { OR: [{ name: { contains: query } }, { asset_tag: { contains: query } }] }, take: 5, select: { id: true, name: true, asset_tag: true, status: true } }),
-      prisma.user.findMany({ where: { name: { contains: query } }, take: 5, select: { id: true, name: true, email: true, role: true } }),
-      prisma.department.findMany({ where: { name: { contains: query } }, take: 5, select: { id: true, name: true } }),
-    ]);
-    return { assets, users, departments: depts };
-  } catch (e) { return { error: e.message }; }
-}
-
+const p = (props, required = []) => ({ type: 'object', properties: props, required });
 const TOOL_SCHEMAS = [
-  { type: 'function', function: { name: 'query_assets', description: 'Search and filter assets by category, status, location, or search term', parameters: { type: 'object', properties: { category: { type: 'string', description: 'Asset category name' }, status: { type: 'string', description: 'Asset status', enum: ['Available', 'Allocated', 'In Maintenance', 'Retired', 'Lost'] }, location: { type: 'string' }, search: { type: 'string' }, limit: { type: 'integer', description: 'Max results (default 20)' } } } } },
-  { type: 'function', function: { name: 'get_asset_detail', description: 'Get full details on a specific asset including allocation and maintenance history', parameters: { type: 'object', properties: { asset_tag: { type: 'string', description: 'The asset tag (e.g. AF-0001)' } }, required: ['asset_tag'] } } },
-  { type: 'function', function: { name: 'who_has_asset', description: 'Find out who currently holds a specific asset', parameters: { type: 'object', properties: { asset_tag: { type: 'string' } }, required: ['asset_tag'] } } },
-  { type: 'function', function: { name: 'get_employee_assets', description: 'Get all assets currently held by an employee (fuzzy name match)', parameters: { type: 'object', properties: { employee_name: { type: 'string' } }, required: ['employee_name'] } } },
-  { type: 'function', function: { name: 'count_assets', description: 'Count assets matching filters', parameters: { type: 'object', properties: { category: { type: 'string' }, status: { type: 'string' }, location: { type: 'string' } } } } },
-  { type: 'function', function: { name: 'list_maintenance_requests', description: 'List maintenance requests, optionally filtered by status and priority', parameters: { type: 'object', properties: { status: { type: 'string', enum: ['Pending', 'Approved', 'InProgress', 'Resolved', 'Rejected'] }, priority: { type: 'string', enum: ['Low', 'Medium', 'High', 'Critical'] } } } } },
-  { type: 'function', function: { name: 'get_overdue_allocations', description: 'Get all assets that are past their expected return date', parameters: { type: 'object', properties: {} } } },
-  { type: 'function', function: { name: 'get_upcoming_bookings', description: 'Get upcoming asset bookings', parameters: { type: 'object', properties: { asset_tag: { type: 'string' }, employee_name: { type: 'string' } } } } },
-  { type: 'function', function: { name: 'get_department_summary', description: 'Get an overview of a department including employees, assets, and maintenance', parameters: { type: 'object', properties: { department_name: { type: 'string' } }, required: ['department_name'] } } },
-  { type: 'function', function: { name: 'get_dashboard_stats', description: 'Get overall dashboard statistics', parameters: { type: 'object', properties: {} } } },
-  { type: 'function', function: { name: 'search_everything', description: 'Search across assets, users, and departments', parameters: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } } },
+  { type: 'function', function: { name: 'pendency_by_stage', description: 'Stage-wise pendency: how many applications are pending at each approval stage, SLA breaches and average days', parameters: p({ region: { type: 'string', description: 'Regional office code or city, optional' } }) } },
+  { type: 'function', function: { name: 'list_applications', description: 'List applications filtered by stage, type, institution, region, SLA breach or minimum days in stage', parameters: p({ stage: { type: 'string', description: 'SCRUTINY, DEFICIENCY, RESCRUTINY, EVC, EC_REVIEW, SAC, SHC, SUBMITTED' }, type: { type: 'string' }, institution: { type: 'string' }, region: { type: 'string' }, sla_breached: { type: 'boolean' }, min_days: { type: 'integer' }, limit: { type: 'integer' } }) } },
+  { type: 'function', function: { name: 'application_status', description: 'Full status and history of one application by application number or institution name', parameters: p({ query: { type: 'string' } }, ['query']) } },
+  { type: 'function', function: { name: 'expiring_documents', description: 'Compliance documents (lease deed, fire NOC, etc.) expiring within N days, optionally including already expired', parameters: p({ days: { type: 'integer' }, doc_type: { type: 'string' }, region: { type: 'string' }, include_expired: { type: 'boolean' } }) } },
+  { type: 'function', function: { name: 'undertakings_status', description: 'Time-bound undertakings from conditional approvals and their status (Pending, Overdue, Submitted, Verified, Breached)', parameters: p({ status: { type: 'string' } }) } },
+  { type: 'function', function: { name: 'evc_schedule', description: 'Upcoming Expert Visit Committee visits within N days, or visits whose reports are pending', parameters: p({ days: { type: 'integer' }, pending_reports: { type: 'boolean' } }) } },
+  { type: 'function', function: { name: 'compliance_ranking', description: 'Institutions ranked by compliance health score (worst first unless best=true)', parameters: p({ region: { type: 'string' }, best: { type: 'boolean' }, limit: { type: 'integer' } }) } },
+  { type: 'function', function: { name: 'institution_profile', description: 'Profile of one institution: compliance score, issues, applications, documents', parameters: p({ name: { type: 'string' } }, ['name']) } },
+  { type: 'function', function: { name: 'open_alerts', description: 'Open compliance alerts, optionally by severity', parameters: p({ severity: { type: 'string', enum: ['Critical', 'High', 'Medium', 'Low'] } }) } },
 ];
-
-const TOOL_FUNCTIONS = { query_assets: queryAssets, get_asset_detail: getAssetDetail, who_has_asset: whoHasAsset, get_employee_assets: getEmployeeAssets, count_assets: countAssets, list_maintenance_requests: listMaintenanceRequests, get_overdue_allocations: getOverdueAllocations, get_upcoming_bookings: getUpcomingBookings, get_department_summary: getDepartmentSummary, get_dashboard_stats: getDashboardStats, search_everything: searchEverything };
 
 module.exports = { TOOL_SCHEMAS, TOOL_FUNCTIONS };

@@ -4,9 +4,10 @@ import { AlertCircle } from 'lucide-react';
 import { apiClient } from '../api/client';
 
 const DEMO_CREDS = [
-  { label: 'Admin', email: 'admin@siteline.local', password: 'password123' },
-  { label: 'Manager', email: 'manager@siteline.local', password: 'password123' },
-  { label: 'Employee', email: 'alice@siteline.local', password: 'password123' },
+  { label: 'Approval Bureau (Admin)', email: 'admin@aicte.gov.in', password: 'demo1234' },
+  { label: 'Regional Officer, WRO', email: 'officer@aicte.gov.in', password: 'demo1234' },
+  { label: 'EVC Expert', email: 'expert@aicte.gov.in', password: 'demo1234' },
+  { label: 'Institution', email: 'institute@sahyadri-it.edu.in', password: 'demo1234' },
 ];
 
 export default function Login() {
@@ -44,9 +45,10 @@ export default function Login() {
         <div className="sl-login__logo">
           <div className="sl-sidebar__logo-icon">SL</div>
           <span className="sl-sidebar__logo-text">SiteLine</span>
+          <span className="sl-sidebar__logo-badge">AICTE</span>
         </div>
         <h1 className="sl-login__title">Welcome back</h1>
-        <p className="sl-login__subtitle">Sign in to your asset management platform</p>
+        <p className="sl-login__subtitle">Approval workflow, compliance monitoring & alerts for AICTE</p>
 
         {error && (
           <div className="sl-login__error">
@@ -57,7 +59,7 @@ export default function Login() {
         <form className="sl-login__form" onSubmit={handleSubmit}>
           <div className="sl-form-group">
             <label className="sl-label" htmlFor="login-email">Email</label>
-            <input id="login-email" className="sl-input" type="email" placeholder="you@company.com" value={email} onChange={e => setEmail(e.target.value)} required />
+            <input id="login-email" className="sl-input" type="email" placeholder="you@aicte.gov.in" value={email} onChange={e => setEmail(e.target.value)} required />
           </div>
           <div className="sl-form-group">
             <label className="sl-label" htmlFor="login-password">Password</label>

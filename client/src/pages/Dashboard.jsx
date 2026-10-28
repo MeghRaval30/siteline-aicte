@@ -1,108 +1,298 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Package, CheckCircle, Wrench, Clock, AlertTriangle, Calendar, Plus, Bot, TrendingUp, TrendingDown } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend, LineChart, Line, Cell } from 'recharts';
+import { FileStack, AlarmClock, CalendarCheck, FileWarning, FileX, ClipboardX, Siren, Bot, Sparkles, ClipboardList, Award, ArrowRight } from 'lucide-react';
 import { apiClient } from '../api/client';
+import { Stat, StageBadge, SlaPill, SeverityBadge, StatusBadge, ScoreRing, GradeBadge, fmtDate, daysUntil, getUser, Loading, STAGE_SHORT } from '../components/ui';
+
+const greeting = () => { const h = new Date().getHours(); return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; };
+const tip = { contentStyle: { background: '#ffffff', border: '1px solid rgba(31,30,29,0.12)', boxShadow: '0 6px 20px rgba(31,30,29,0.1)', color: '#1f1e1d', borderRadius: 8, fontSize: 12 }, cursor: { fill: 'rgba(31,30,29,0.04)' } };
+const axis = { stroke: '#84827c', fontSize: 11, tickLine: false, axisLine: false };
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const [stats, setStats] = useState(null);
+  const user = getUser();
+  const [d, setD] = useState(null);
   const [insights, setInsights] = useState([]);
-  const [activities, setActivities] = useState([]);
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all([
-      apiClient.get('/dashboard/stats').catch(() => null),
-      apiClient.get('/ai/insights').catch(() => []),
-      apiClient.get('/activity-logs?limit=8').catch(() => []),
-    ]).then(([s, ins, acts]) => {
-      setStats(s);
-      setInsights(Array.isArray(ins) ? ins : []);
-      setActivities(Array.isArray(acts) ? acts : acts?.logs || []);
-      setLoading(false);
-    });
+    apiClient.get('/dashboard/overview').then(setD).catch(() => setD({ error: true }));
+    if (user.role !== 'Institution') apiClient.get('/ai/insights').then(x => setInsights(Array.isArray(x) ? x : [])).catch(() => {});
   }, []);
 
-  const statCards = stats ? [
-    { label: 'Total Assets', value: (stats.totalAssets || stats.availableAssets + stats.allocatedAssets + (stats.inMaintenance || 0)) || 0, icon: Package, color: 'accent', trend: '+12%', up: true },
-    { label: 'Available', value: stats.availableAssets || 0, icon: CheckCircle, color: 'success' },
-    { label: 'Allocated', value: stats.allocatedAssets || 0, icon: Package, color: 'info' },
-    { label: 'In Maintenance', value: stats.maintenanceToday || stats.inMaintenance || 0, icon: Wrench, color: 'warning' },
-    { label: 'Overdue Returns', value: (Array.isArray(stats.overdueReturns) ? stats.overdueReturns.length : stats.overdueReturns) || 0, icon: AlertTriangle, color: 'danger' },
-    { label: 'Active Bookings', value: stats.activeBookings || 0, icon: Calendar, color: 'info' },
-  ] : [];
+  if (!d) return <Loading />;
+  if (d.error) return <div className="sl-empty"><div className="sl-empty__title">Could not load dashboard</div></div>;
+  if (d.role === 'Institution') return <InstitutionHome d={d} navigate={navigate} />;
+  if (d.role === 'Expert') return <ExpertHome d={d} navigate={navigate} user={user} />;
 
-  if (loading) return (
-    <div>
-      <div className="sl-page__header"><div className="sl-skeleton sl-skeleton--title" /></div>
-      <div className="sl-stats-grid">{[...Array(6)].map((_, i) => <div key={i} className="sl-skeleton sl-skeleton--card" />)}</div>
-    </div>
-  );
+  const k = d.kpis;
+  const maxHeat = Math.max(1, ...d.heatmap.flatMap(r => d.pipeline.map(p => r[p.stage])));
 
   return (
     <div>
       <div className="sl-page__header">
         <div>
-          <h1 className="sl-page__title">Dashboard</h1>
-          <p className="sl-page__subtitle">Overview of your asset management operations</p>
+          <h1 className="sl-page__title"><Sparkles size={26} className="aq-greeting-mark" />{greeting()}, {user.name?.replace(/^(Dr\.|Prof\.|Smt\.|Shri|Ar\.)\s*/, '').split(' ')[0]}</h1>
+          <p className="sl-page__subtitle">{user.role === 'Admin' ? 'National approval command centre' : `${user.designation || 'Regional'} desk`}: live application movement, stage-wise pendency, EVC scheduling and compliance health</p>
         </div>
         <div className="sl-page__actions">
-          <button className="sl-btn sl-btn--secondary" onClick={() => navigate('/ai-chat')} id="dash-ai-btn"><Bot size={16} /> AI Assistant</button>
-          <button className="sl-btn sl-btn--primary" onClick={() => navigate('/assets')} id="dash-add-asset"><Plus size={16} /> Add Asset</button>
+          <button className="sl-btn sl-btn--secondary" onClick={() => navigate('/ai-chat')}><Bot size={16} /> Ask AI</button>
+          <button className="sl-btn sl-btn--primary" onClick={() => navigate('/applications?view=board')}><FileStack size={16} /> Pipeline Board</button>
         </div>
       </div>
 
-      <div className="sl-stats-grid">
-        {statCards.map((s, i) => (
-          <div className="sl-stat" key={i}>
-            <div className={`sl-stat__icon sl-stat__icon--${s.color}`}><s.icon size={20} /></div>
-            <div className="sl-stat__label">{s.label}</div>
-            <div className="sl-stat__value">{s.value}</div>
-            {s.trend && <div className={`sl-stat__trend ${s.up ? 'sl-stat__trend--up' : 'sl-stat__trend--down'}`}>{s.up ? <TrendingUp size={12} /> : <TrendingDown size={12} />} {s.trend}</div>}
-          </div>
-        ))}
+      <div className="aq-grid-auto">
+        <Stat icon={FileStack} label="Applications in process" value={k.active_applications} tone="accent" sub={`${k.decided_this_year} decided this year`} onClick={() => navigate('/applications?active=1')} />
+        <Stat icon={AlarmClock} label="Past stage SLA" value={k.sla_breached} tone="danger" sub={`${k.active_applications ? Math.round(100 * k.sla_breached / k.active_applications) : 0}% of pipeline`} onClick={() => navigate('/applications?overdue=1')} />
+        <Stat icon={CalendarCheck} label="EVC visits · next 7 days" value={k.evc_next_7_days} tone="info" sub={`${k.evc_reports_pending} reports pending`} onClick={() => navigate('/evc')} />
+        <Stat icon={FileWarning} label="Documents expiring (60d)" value={k.docs_expiring} tone="warning" onClick={() => navigate('/compliance?status=Expiring Soon')} />
+        <Stat icon={FileX} label="Documents expired" value={k.docs_expired} tone="danger" onClick={() => navigate('/compliance?status=Expired')} />
+        <Stat icon={ClipboardX} label="Undertakings overdue" value={k.undertakings_overdue} tone="danger" sub={`${k.undertakings_due_30} due in 30 days`} onClick={() => navigate('/compliance?tab=undertakings')} />
+        <Stat icon={Siren} label="Open alerts" value={k.open_alerts} tone="warning" sub={`${k.critical_alerts} critical`} onClick={() => navigate('/alerts')} />
       </div>
 
-      <div className="sl-grid-2 sl-gap-4 sl-mt-6" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+      <div className="aq-grid-3 sl-mt-6">
         <div className="sl-card">
-          <div className="sl-card__header">
-            <h3 className="sl-card__title">AI Insights</h3>
-            <span className={`sl-ai-status ${insights.length > 0 ? 'sl-ai-status--online' : 'sl-ai-status--offline'}`}>
-              <span className="sl-ai-status__dot" />Active
-            </span>
+          <div className="sl-card__header"><h3 className="sl-card__title">Stage-wise pendency</h3><span className="sl-text-xs sl-text-muted">within SLA vs breached</span></div>
+          <div className="sl-card__body" style={{ height: 280 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={d.pipeline} margin={{ top: 8, right: 8, left: -18, bottom: 0 }} onClick={e => e?.activePayload && navigate(`/applications?stage=${e.activePayload[0].payload.stage}`)}>
+                <CartesianGrid stroke="rgba(31,30,29,0.07)" vertical={false} />
+                <XAxis dataKey="label" {...axis} />
+                <YAxis allowDecimals={false} {...axis} />
+                <Tooltip {...tip} formatter={(v, n) => [v, n === 'within' ? 'Within SLA' : 'SLA breached']} labelFormatter={(l, p) => p?.[0] ? `${p[0].payload.full_label} · SLA ${p[0].payload.sla_days}d · avg ${p[0].payload.avg_days}d` : l} />
+                <Bar dataKey="within" stackId="a" fill="#c96442" radius={[0, 0, 0, 0]} style={{ cursor: 'pointer' }} />
+                <Bar dataKey="breached" stackId="a" fill="#9b1c1c" radius={[4, 4, 0, 0]} style={{ cursor: 'pointer' }} />
+              </BarChart>
+            </ResponsiveContainer>
           </div>
+        </div>
+        <div className="sl-card">
+          <div className="sl-card__header"><h3 className="sl-card__title"><Sparkles size={14} style={{ verticalAlign: -2 }} /> Insights</h3></div>
           <div className="sl-card__body">
-            {insights.length === 0 ? (
-              <p className="sl-text-muted sl-text-sm">No insights available</p>
-            ) : insights.map((ins, i) => (
-              <div key={i} className="sl-flex sl-items-center sl-gap-3 sl-mb-4">
-                <div className={`sl-badge sl-badge--${ins.type === 'warning' ? 'warning' : ins.type === 'danger' ? 'danger' : ins.type === 'success' ? 'success' : 'info'} sl-badge--dot`}>{ins.message}</div>
+            {insights.map((ins, i) => (
+              <div key={i} className="aq-list-item sl-flex sl-gap-2 sl-items-center">
+                <span className={`sl-badge sl-badge--${ins.type} sl-badge--dot`} style={{ whiteSpace: 'normal', textAlign: 'left' }}>{ins.message}</span>
+              </div>
+            ))}
+            <h4 className="sl-text-sm sl-font-semibold sl-mt-4 sl-mb-2">Ageing of pending applications</h4>
+            <div style={{ height: 130 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={d.buckets} layout="vertical" margin={{ left: 10, right: 16 }}>
+                  <XAxis type="number" hide />
+                  <YAxis type="category" dataKey="label" width={74} {...axis} />
+                  <Tooltip {...tip} />
+                  <Bar dataKey="count" radius={[0, 4, 4, 0]}>
+                    {d.buckets.map((b, i) => <Cell key={i} fill={['#057642', '#0a66c2', '#d99a2b', '#d9480f', '#c4141b'][i]} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="sl-card sl-mt-6">
+        <div className="sl-card__header"><h3 className="sl-card__title">Regional pendency heatmap</h3><span className="sl-text-xs sl-text-muted">applications by Regional Office × stage</span></div>
+        <div className="sl-table-container" style={{ border: 'none' }}>
+          <table className="sl-table sl-table--compact aq-heat">
+            <thead><tr><th>Regional Office</th>{d.pipeline.map(p => <th key={p.stage} className="sl-text-center">{p.label}</th>)}<th className="sl-text-center">Total</th><th className="sl-text-center">Past SLA</th></tr></thead>
+            <tbody>
+              {d.heatmap.map(r => (
+                <tr key={r.region}>
+                  <td><span className="sl-font-medium">{r.region}</span> <span className="sl-text-xs sl-text-muted">{r.region_name.replace(' Regional Office', '')}</span></td>
+                  {d.pipeline.map(p => {
+                    const v = r[p.stage];
+                    return <td key={p.stage} className="aq-heat__cell" style={{ background: v ? `rgba(201,100,66,${0.1 + 0.6 * v / maxHeat})` : undefined, color: v ? undefined : 'var(--sl-text-muted)', cursor: v ? 'pointer' : undefined }}
+                      onClick={() => v && navigate(`/applications?stage=${p.stage}&region=${r.region}`)}>{v || '·'}</td>;
+                  })}
+                  <td className="aq-heat__cell">{r.total}</td>
+                  <td className="aq-heat__cell" style={{ color: r.breached ? 'var(--sl-danger)' : 'var(--sl-text-muted)' }}>{r.breached}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="aq-grid-2 sl-mt-6">
+        <div className="sl-card">
+          <div className="sl-card__header"><h3 className="sl-card__title">Top alerts</h3><button className="sl-btn sl-btn--ghost sl-btn--sm" onClick={() => navigate('/alerts')}>Alert Center <ArrowRight size={14} /></button></div>
+          <div className="sl-card__body">
+            {d.top_alerts.length === 0 ? <p className="sl-text-muted sl-text-sm">No open alerts</p> : d.top_alerts.map(a => (
+              <div key={a.id} className="aq-list-item">
+                <div className="sl-flex sl-items-center sl-gap-2"><SeverityBadge severity={a.severity} /><span className="sl-text-sm sl-font-medium">{a.title}</span></div>
+                <div className="sl-text-xs sl-text-muted sl-mt-1">{a.detail}</div>
               </div>
             ))}
           </div>
         </div>
-
         <div className="sl-card">
-          <div className="sl-card__header">
-            <h3 className="sl-card__title">Recent Activity</h3>
-            <button className="sl-btn sl-btn--ghost sl-btn--sm" onClick={() => navigate('/activity-logs')}>View all</button>
-          </div>
+          <div className="sl-card__header"><h3 className="sl-card__title">Longest past SLA</h3><button className="sl-btn sl-btn--ghost sl-btn--sm" onClick={() => navigate('/applications?overdue=1')}>All <ArrowRight size={14} /></button></div>
           <div className="sl-card__body">
-            {activities.length === 0 ? (
-              <p className="sl-text-muted sl-text-sm">No recent activity</p>
-            ) : (
-              <div className="sl-timeline">
-                {activities.slice(0, 6).map((act, i) => (
-                  <div className="sl-timeline__item" key={act.id || i}>
-                    <div className="sl-timeline__dot sl-timeline__dot--accent" />
-                    <div className="sl-timeline__content">
-                      <div className="sl-timeline__title">{act.action}</div>
-                      <div className="sl-timeline__time">{act.actor?.name || 'System'} · {new Date(act.created_at).toLocaleDateString()}</div>
-                    </div>
-                  </div>
-                ))}
+            {d.longest_pending.map(a => (
+              <div key={a.id} className="aq-list-item sl-flex sl-items-center sl-justify-between sl-gap-3 sl-cursor-pointer" onClick={() => navigate(`/applications/${a.id}`)}>
+                <div style={{ minWidth: 0 }}>
+                  <div className="sl-text-sm sl-font-medium sl-truncate">{a.institution}</div>
+                  <div className="sl-text-xs sl-text-muted">{a.app_number} · {a.type}</div>
+                </div>
+                <div className="sl-flex sl-items-center sl-gap-3"><StageBadge stage={a.stage} /><SlaPill sla={a.sla} /></div>
               </div>
-            )}
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="aq-grid-2 sl-mt-6">
+        <div className="sl-card">
+          <div className="sl-card__header"><h3 className="sl-card__title">Throughput (last 6 months)</h3></div>
+          <div className="sl-card__body" style={{ height: 240 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={d.months} margin={{ top: 8, right: 12, left: -18, bottom: 0 }}>
+                <CartesianGrid stroke="rgba(31,30,29,0.07)" vertical={false} />
+                <XAxis dataKey="month" {...axis} /><YAxis allowDecimals={false} {...axis} />
+                <Tooltip {...tip} /><Legend wrapperStyle={{ fontSize: 12 }} />
+                <Line type="monotone" dataKey="submitted" name="Submitted" stroke="#0a66c2" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="decided" name="Decided" stroke="#057642" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="breaches" name="SLA breaches" stroke="#c4141b" strokeWidth={2} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+        <div className="sl-card">
+          <div className="sl-card__header"><h3 className="sl-card__title">Compliance health</h3><span className="sl-text-xs sl-text-muted">avg score {d.compliance?.average}</span></div>
+          <div className="sl-card__body">
+            <div className="sl-flex sl-gap-3 sl-mb-4">
+              {d.compliance?.grades.map(g => (
+                <div key={g.grade} className="aq-panel sl-flex-1 sl-text-center sl-cursor-pointer" onClick={() => navigate(`/institutions?grade=${g.grade}`)}>
+                  <GradeBadge grade={g.grade} /><div className="sl-text-lg sl-font-bold sl-mt-1">{g.count}</div>
+                </div>
+              ))}
+            </div>
+            {d.compliance?.worst.map(w => (
+              <div key={w.id} className="aq-list-item sl-flex sl-items-center sl-justify-between sl-cursor-pointer" onClick={() => navigate(`/institutions/${w.id}`)}>
+                <div><div className="sl-text-sm sl-font-medium">{w.name}</div><div className="sl-text-xs sl-text-muted">{w.reason}</div></div>
+                <GradeBadge grade={w.grade} score={w.score} />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ExpertHome({ d, navigate, user }) {
+  return (
+    <div>
+      <div className="sl-page__header"><div><h1 className="sl-page__title"><Sparkles size={26} className="aq-greeting-mark" />{greeting()}, {user.name}</h1><p className="sl-page__subtitle">Your Expert Visit Committee assignments</p></div>
+        <div className="sl-page__actions"><button className="sl-btn sl-btn--primary" onClick={() => navigate('/evc')}><CalendarCheck size={16} /> My Visits</button></div></div>
+      <div className="aq-grid-auto">
+        <Stat icon={CalendarCheck} label="Upcoming visits" value={d.upcoming_visits.filter(v => new Date(v.visit_date) >= new Date()).length} tone="info" />
+        <Stat icon={ClipboardList} label="Reports to file" value={d.pending_reports?.length || 0} tone="danger" />
+        <Stat icon={FileStack} label="Applications on my panels" value={d.kpis.active_applications} tone="accent" />
+      </div>
+      {d.pending_reports?.length > 0 && (
+        <div className="sl-card sl-mt-6" style={{ borderColor: 'var(--sl-danger)' }}>
+          <div className="sl-card__header"><h3 className="sl-card__title">Reports overdue</h3></div>
+          <div className="sl-card__body">
+            {d.pending_reports.map(v => (
+              <div key={v.id} className="aq-list-item sl-flex sl-justify-between sl-items-center">
+                <div><div className="sl-font-medium sl-text-sm">{v.application.institution.name}</div><div className="sl-text-xs sl-text-muted">Visited {fmtDate(v.visit_date)} · {v.application.app_number}</div></div>
+                <button className="sl-btn sl-btn--primary sl-btn--sm" onClick={() => navigate(`/evc?report=${v.id}`)}>File report</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      <div className="sl-card sl-mt-6">
+        <div className="sl-card__header"><h3 className="sl-card__title">Scheduled visits</h3></div>
+        <div className="sl-card__body">
+          {d.upcoming_visits.length === 0 ? <p className="sl-text-muted sl-text-sm">No visits scheduled</p> : d.upcoming_visits.map(v => (
+            <div key={v.id} className="aq-list-item sl-flex sl-justify-between sl-items-center">
+              <div><div className="sl-font-medium sl-text-sm">{v.application.institution.name}</div><div className="sl-text-xs sl-text-muted">{v.application.app_number} · {v.mode} · Panel: {v.members.map(m => m.user.name).join(', ')}</div></div>
+              <span className="sl-badge sl-badge--info">{fmtDate(v.visit_date)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InstitutionHome({ d, navigate }) {
+  const inst = d.institution;
+  const c = inst?.compliance;
+  return (
+    <div>
+      <div className="sl-page__header">
+        <div><h1 className="sl-page__title">{inst?.name}</h1><p className="sl-page__subtitle">AICTE ID {inst?.aicte_id} · {inst?.city}, {inst?.state} · {inst?.region?.name}</p></div>
+        <div className="sl-page__actions">
+          <button className="sl-btn sl-btn--secondary" onClick={() => navigate('/compliance')}>Upload / renew documents</button>
+          <button className="sl-btn sl-btn--primary" onClick={() => navigate('/applications?new=1')}><FileStack size={16} /> New Application</button>
+        </div>
+      </div>
+
+      <div className="aq-grid-3">
+        <div className="sl-card">
+          <div className="sl-card__header"><h3 className="sl-card__title">My applications</h3></div>
+          <div className="sl-card__body">
+            {d.my_applications.map(a => (
+              <div key={a.id} className="aq-list-item sl-flex sl-justify-between sl-items-center sl-cursor-pointer" onClick={() => navigate(`/applications/${a.id}`)}>
+                <div><div className="sl-font-medium sl-text-sm">{a.type}</div><div className="sl-text-xs sl-text-muted">{a.app_number} · submitted {fmtDate(a.submitted_at)}</div></div>
+                <div className="sl-flex sl-items-center sl-gap-3"><StageBadge stage={a.stage} /><SlaPill sla={a.sla} /></div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="sl-card">
+          <div className="sl-card__header"><h3 className="sl-card__title"><Award size={14} style={{ verticalAlign: -2 }} /> Compliance health</h3></div>
+          <div className="sl-card__body">
+            <div className="aq-hero"><ScoreRing score={c.score} /><div><GradeBadge grade={c.grade} /><div className="sl-text-sm sl-mt-1">{c.risk} risk</div></div></div>
+            <div className="sl-mt-4">
+              {c.reasons.length === 0 ? <p className="sl-text-sm sl-text-success">No open compliance gaps.</p> : c.reasons.map((r, i) => (
+                <div key={i} className="sl-flex sl-justify-between sl-text-sm aq-list-item"><span>{r.reason}</span><span className="sl-text-danger">{r.points}</span></div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {inst.open_deficiencies.length > 0 && (
+        <div className="sl-card sl-mt-6" style={{ borderColor: 'var(--sl-warning)' }}>
+          <div className="sl-card__header"><h3 className="sl-card__title">Deficiencies awaiting your response</h3></div>
+          <div className="sl-card__body">
+            {inst.open_deficiencies.map(df => (
+              <div key={df.id} className="aq-list-item sl-flex sl-justify-between sl-items-center sl-gap-3">
+                <div><div className="sl-text-sm"><b>{df.category}:</b> {df.description}</div><div className="sl-text-xs sl-text-muted">{df.application.app_number} · respond by {fmtDate(df.due_date)} ({daysUntil(df.due_date)} days)</div></div>
+                <button className="sl-btn sl-btn--primary sl-btn--sm" onClick={() => navigate(`/applications/${df.application.id}?tab=deficiencies`)}>Respond</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="aq-grid-2 sl-mt-6">
+        <div className="sl-card">
+          <div className="sl-card__header"><h3 className="sl-card__title">Documents needing renewal</h3></div>
+          <div className="sl-card__body">
+            {d.expiring_docs.length === 0 ? <p className="sl-text-muted sl-text-sm">All documents valid</p> : d.expiring_docs.map(doc => (
+              <div key={doc.id} className="aq-list-item sl-flex sl-justify-between sl-items-center">
+                <div><div className="sl-text-sm sl-font-medium">{doc.doc_type}</div><div className="sl-text-xs sl-text-muted">valid till {fmtDate(doc.valid_to)} ({daysUntil(doc.valid_to)} days)</div></div>
+                <button className="sl-btn sl-btn--secondary sl-btn--sm" onClick={() => navigate(`/compliance?renew=${doc.id}`)}>Renew</button>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="sl-card">
+          <div className="sl-card__header"><h3 className="sl-card__title">Undertakings due</h3></div>
+          <div className="sl-card__body">
+            {d.due_undertakings.length === 0 ? <p className="sl-text-muted sl-text-sm">Nothing due</p> : d.due_undertakings.map(u => (
+              <div key={u.id} className="aq-list-item sl-flex sl-justify-between sl-items-center">
+                <div><div className="sl-text-sm sl-font-medium">{u.title}</div><div className="sl-text-xs sl-text-muted">due {fmtDate(u.due_date)} ({daysUntil(u.due_date)} days)</div></div>
+                <div className="sl-flex sl-gap-2 sl-items-center"><StatusBadge status={u.status} /><button className="sl-btn sl-btn--secondary sl-btn--sm" onClick={() => navigate('/compliance?tab=undertakings')}>Submit proof</button></div>
+              </div>
+            ))}
           </div>
         </div>
       </div>

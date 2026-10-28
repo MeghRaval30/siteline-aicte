@@ -1,0 +1,178 @@
+/* ============================================================
+   "Ivory & Clay" theme: claude.ai's warm canvas, clay accent and
+   serif display type, with LinkedIn's white bordered cards, pill
+   buttons, system UI font and blue links. Loaded after index.css.
+   ============================================================ */
+@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&display=swap');
+
+:root {
+  --sl-bg-primary: #f5f3ee;
+  --sl-bg-secondary: #ffffff;
+  --sl-bg-tertiary: #f8f7f3;
+  --sl-bg-elevated: #ffffff;
+  --sl-bg-hover: #f0eee7;
+  --sl-bg-active: #e9e6dd;
+  --sl-bg-overlay: rgba(31, 30, 29, 0.35);
+  --sl-bg-glass: rgba(255, 255, 255, 0.92);
+  --sl-bg-input: #ffffff;
+
+  --sl-border-subtle: rgba(31, 30, 29, 0.09);
+  --sl-border-default: rgba(31, 30, 29, 0.15);
+  --sl-border-strong: rgba(31, 30, 29, 0.28);
+  --sl-border-focus: rgba(201, 100, 66, 0.45);
+
+  --sl-text-primary: #1f1e1d;
+  --sl-text-secondary: #5e5d59;
+  --sl-text-muted: #84827c;
+  --sl-text-inverse: #ffffff;
+
+  --sl-accent: #c96442;
+  --sl-accent-hover: #b4573a;
+  --sl-accent-muted: rgba(201, 100, 66, 0.13);
+  --sl-accent-subtle: rgba(201, 100, 66, 0.06);
+
+  --sl-success: #057642;
+  --sl-success-muted: rgba(5, 118, 66, 0.1);
+  --sl-warning: #a85d00;
+  --sl-warning-muted: rgba(231, 163, 62, 0.18);
+  --sl-danger: #c4141b;
+  --sl-danger-muted: rgba(204, 16, 22, 0.08);
+  --sl-info: #0a66c2;
+  --sl-info-muted: rgba(10, 102, 194, 0.09);
+
+  --sl-font-sans: -apple-system, system-ui, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', 'Fira Sans', Ubuntu, Oxygen, sans-serif;
+  --sl-font-serif: 'Source Serif 4', 'Tiempos Text', Georgia, 'Times New Roman', serif;
+
+  --sl-shadow-sm: 0 1px 2px rgba(31, 30, 29, 0.05);
+  --sl-shadow-md: 0 4px 14px rgba(31, 30, 29, 0.08);
+  --sl-shadow-lg: 0 10px 30px rgba(31, 30, 29, 0.12);
+  --sl-shadow-xl: 0 18px 48px rgba(31, 30, 29, 0.16);
+  --sl-shadow-glow: none;
+  --sl-shadow-inner: inset 0 1px 2px rgba(31, 30, 29, 0.06);
+
+  --sl-radius-lg: 10px;
+  --sl-sidebar-width: 252px;
+  --sl-topbar-height: 56px;
+  color-scheme: light;
+}
+
+body { background: var(--sl-bg-primary); color: var(--sl-text-primary); }
+::selection { background: rgba(201, 100, 66, 0.22); }
+::-webkit-scrollbar-thumb { background: rgba(31, 30, 29, 0.16) !important; }
+::-webkit-scrollbar-thumb:hover { background: rgba(31, 30, 29, 0.28) !important; }
+a { color: var(--sl-info); }
+
+/* ---- Sidebar: claude.ai ---- */
+.sl-sidebar { background: #faf9f5; border-right: 1px solid var(--sl-border-subtle); }
+.sl-sidebar__logo-icon { background: var(--sl-accent); box-shadow: none; color: #fff; border-radius: 9px; }
+.sl-sidebar__logo-text { font-family: var(--sl-font-serif); font-weight: 600; letter-spacing: -0.01em; font-size: 1.15rem; }
+.sl-sidebar__logo-badge { background: var(--sl-accent-muted); color: var(--sl-accent); border: none; }
+.sl-sidebar__section-label { color: var(--sl-text-muted); letter-spacing: .06em; }
+.sl-nav-item { color: var(--sl-text-secondary); border: none; }
+.sl-nav-item:hover { background: rgba(31, 30, 29, 0.05); color: var(--sl-text-primary); }
+.sl-nav-item.active { background: rgba(31, 30, 29, 0.07); color: var(--sl-text-primary); font-weight: 600; border: none; }
+.sl-nav-item.active .sl-nav-item__icon { color: var(--sl-accent); }
+.sl-nav-item.active::before { display: none; }
+
+/* ---- Top bar: LinkedIn ---- */
+.sl-topbar { background: rgba(255, 255, 255, 0.94); border-bottom: 1px solid var(--sl-border-subtle); box-shadow: 0 1px 0 rgba(31, 30, 29, 0.02); }
+.sl-topbar__search { background: #edf3f8; border: 1px solid transparent; border-radius: 6px; color: #56687a; min-width: 280px; }
+.sl-topbar__search:hover { border-color: rgba(10, 102, 194, 0.35); background: #e6eef6; }
+.sl-topbar__search-shortcut { background: #fff; color: #56687a; border-color: rgba(31, 30, 29, 0.12); }
+.sl-topbar__breadcrumb-current { font-weight: 600; }
+.sl-sidebar__user { background: transparent; border: none; }
+.sl-sidebar__user:hover { background: rgba(31, 30, 29, 0.05); }
+.sl-avatar { background: var(--sl-accent-muted); color: var(--sl-accent); border: none; }
+.sl-notif-bell__count { background: var(--sl-danger); color: #fff; }
+
+/* ---- Typography: serif display like claude.ai ---- */
+.sl-page__title { font-family: var(--sl-font-serif); font-weight: 500; font-size: 1.85rem; letter-spacing: -0.015em; }
+.sl-page__subtitle { color: var(--sl-text-secondary); }
+.sl-stat__value { font-family: var(--sl-font-serif); font-weight: 600; letter-spacing: -0.01em; }
+.sl-modal__title { font-family: var(--sl-font-serif); font-weight: 600; }
+.sl-login__title, .sl-chat__welcome-title { font-family: var(--sl-font-serif); font-weight: 500; }
+.sl-card__title { font-weight: 600; font-size: 0.95rem; }
+
+/* ---- Cards: LinkedIn ---- */
+.sl-card, .sl-stat { background: #fff; border: 1px solid var(--sl-border-subtle); box-shadow: 0 0 0 1px rgba(140, 140, 140, 0.06); }
+.sl-card--interactive:hover, .sl-stat.sl-card--interactive:hover { border-color: var(--sl-border-default); box-shadow: var(--sl-shadow-md); transform: translateY(-1px); }
+.sl-stat::before, .sl-stat::after { display: none !important; }
+.sl-card__header { border-bottom-color: var(--sl-border-subtle); }
+
+/* ---- Buttons: LinkedIn pills, clay primary ---- */
+.sl-btn { border-radius: 999px; font-weight: 600; }
+.sl-btn--primary { background: var(--sl-accent); color: #fff; box-shadow: none; border-color: transparent; }
+.sl-btn--primary:hover:not(:disabled) { background: var(--sl-accent-hover); box-shadow: none; transform: none; }
+.sl-btn--secondary { background: #fff; color: var(--sl-text-primary); border: 1px solid var(--sl-border-strong); }
+.sl-btn--secondary:hover:not(:disabled) { background: var(--sl-bg-hover); border-color: var(--sl-text-secondary); box-shadow: inset 0 0 0 1px var(--sl-text-secondary); }
+.sl-btn--ghost { color: var(--sl-text-secondary); }
+.sl-btn--ghost:hover:not(:disabled) { background: rgba(31, 30, 29, 0.06); color: var(--sl-text-primary); }
+.sl-btn--danger { background: #fff; color: var(--sl-danger); border: 1px solid rgba(196, 20, 27, 0.5); }
+.sl-btn--danger:hover:not(:disabled) { background: var(--sl-danger-muted); border-color: var(--sl-danger); }
+.sl-btn:disabled { opacity: .45; }
+
+/* ---- Forms ---- */
+.sl-input, .sl-select, .sl-textarea { background: #fff; border: 1px solid var(--sl-border-default); color: var(--sl-text-primary); }
+.sl-input:hover, .sl-select:hover, .sl-textarea:hover { border-color: var(--sl-border-strong); }
+.sl-input:focus, .sl-select:focus, .sl-textarea:focus { border-color: var(--sl-accent); box-shadow: 0 0 0 3px rgba(201, 100, 66, 0.15); }
+.sl-input::placeholder, .sl-textarea::placeholder { color: #a3a19a; }
+input[type="checkbox"], input[type="range"] { accent-color: var(--sl-accent); }
+
+/* ---- Tables, tabs, chips ---- */
+.sl-table-container { background: #fff; border: 1px solid var(--sl-border-subtle); border-radius: var(--sl-radius-lg); }
+.sl-table th { background: #faf9f5; color: var(--sl-text-muted); border-bottom: 1px solid var(--sl-border-subtle); }
+.sl-table td { border-bottom-color: var(--sl-border-subtle); }
+.sl-table tbody tr:hover td, .aq-row-link:hover td { background: #faf9f5; }
+.sl-tabs { border-bottom-color: var(--sl-border-subtle); }
+.sl-tab { color: var(--sl-text-secondary); }
+.sl-tab.active { color: var(--sl-text-primary); border-bottom-color: var(--sl-accent); font-weight: 600; }
+.sl-filter-chip { background: #fff; border: 1px solid var(--sl-border-strong); color: var(--sl-text-secondary); border-radius: 999px; font-weight: 600; }
+.sl-filter-chip:hover { background: var(--sl-bg-hover); color: var(--sl-text-primary); }
+.sl-filter-chip.active { background: #01754f; border-color: #01754f; color: #fff; }
+
+/* ---- Badges ---- */
+.sl-badge--accent { background: var(--sl-accent-muted); color: var(--sl-accent); }
+.sl-badge--neutral { background: rgba(31, 30, 29, 0.06); color: var(--sl-text-secondary); }
+
+/* ---- Overlays ---- */
+.sl-modal-backdrop, .sl-command-backdrop { background: rgba(31, 30, 29, 0.32); backdrop-filter: blur(2px); }
+.sl-modal, .sl-command, .sl-dropdown, .sl-notif-panel { background: #fff; border: 1px solid var(--sl-border-subtle); box-shadow: var(--sl-shadow-xl); }
+.sl-dropdown__item:hover, .sl-command__item:hover, .sl-command__item.active { background: var(--sl-bg-hover); }
+.sl-notif-item--unread { background: rgba(10, 102, 194, 0.06); }
+.sl-toast { background: #fff; color: var(--sl-text-primary); border: 1px solid var(--sl-border-subtle); box-shadow: var(--sl-shadow-lg); }
+.sl-skeleton { background: linear-gradient(90deg, #efede6 25%, #f7f6f2 50%, #efede6 75%) !important; background-size: 200% 100% !important; }
+
+/* ---- Login ---- */
+.sl-login { background: radial-gradient(1200px 600px at 50% -10%, #fbf1ea 0%, var(--sl-bg-primary) 60%); }
+.sl-login::before, .sl-login::after { display: none !important; }
+.sl-login__card { background: #fff; border: 1px solid var(--sl-border-subtle); box-shadow: var(--sl-shadow-lg); }
+.sl-login__demo-cred { background: #faf9f5; border: 1px solid var(--sl-border-subtle); }
+.sl-login__demo-cred:hover { border-color: var(--sl-accent); background: var(--sl-accent-subtle); }
+.sl-login__demo-cred code { color: var(--sl-info); }
+
+/* ---- AI chat: claude.ai ---- */
+.sl-chat__message--user .sl-chat__message-bubble { background: #efece3; color: var(--sl-text-primary); border: none; }
+.sl-chat__message--ai .sl-chat__message-bubble { background: transparent; border: none; padding-left: 0; font-family: var(--sl-font-serif); font-size: 1rem; line-height: 1.65; color: var(--sl-text-primary); }
+.sl-chat__message--ai .sl-chat__message-avatar { background: var(--sl-accent); color: #fff; }
+.sl-chat__input-wrapper { background: #fff; border: 1px solid var(--sl-border-default); border-radius: 18px; box-shadow: var(--sl-shadow-md); }
+.sl-chat__send { background: var(--sl-accent); color: #fff; }
+.sl-chat__suggestion { background: #fff; border: 1px solid var(--sl-border-default); color: var(--sl-text-secondary); }
+.sl-chat__suggestion:hover { border-color: var(--sl-accent); color: var(--sl-text-primary); background: var(--sl-accent-subtle); }
+.sl-chat__welcome-icon { background: var(--sl-accent-muted); color: var(--sl-accent); box-shadow: none; }
+.sl-chat__trace-body { background: #faf9f5; }
+
+/* ---- AICTE components on light ---- */
+.aq-panel { background: #faf9f5; border-color: var(--sl-border-subtle); }
+.aq-kanban__col { background: #efede6; border-color: transparent; }
+.aq-kanban__head { background: transparent; }
+.aq-kcard { background: #fff; border-color: var(--sl-border-subtle); box-shadow: var(--sl-shadow-sm); }
+.aq-kcard:hover { border-color: var(--sl-accent); box-shadow: var(--sl-shadow-md); }
+.aq-sla__bar { background: #ebe8e0; }
+.aq-tracker__dot { background: #fff; border-color: var(--sl-border-strong); }
+.aq-tracker__step--done .aq-tracker__dot { color: #fff; }
+.aq-expert { background: #fff; }
+.aq-expert--on { background: var(--sl-accent-subtle); }
+.sl-timeline__dot--accent { background: var(--sl-accent); }
+.sl-ai-status--online { background: var(--sl-success-muted); color: var(--sl-success); }
+.sl-ai-status--offline { background: var(--sl-warning-muted); color: var(--sl-warning); }
+.aq-greeting-mark { color: var(--sl-accent); margin-right: 10px; vertical-align: -3px; }

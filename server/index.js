@@ -1,17 +1,16 @@
 require('dotenv').config();
+const path = require('path');
 const express = require('express');
 const cors = require('cors');
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '15mb' }));
 
-// Basic health check
 app.get('/api/v1/health', (req, res) => {
   res.json({ success: true, data: { status: 'ok' }, error: null });
 });
 
-// Request logging middleware
 app.use((req, res, next) => {
   const start = Date.now();
   res.on('finish', () => {
@@ -20,53 +19,47 @@ app.use((req, res, next) => {
   next();
 });
 
-// TODO: Subagents will mount their routes here
 const { authRouter } = require('./modules/auth');
-const { dashboardRouter } = require('./modules/dashboard');
-const { departmentRouter, categoryRouter, employeeRouter } = require('./modules/organization');
-const assetRouter = require('./modules/assets/asset.routes.js');
-const allocationRouter = require('./modules/allocations/allocation.routes.js');
-const maintenanceRouter = require('./modules/maintenance/maintenance.routes.js');
-const bookingRoutes = require('./modules/bookings/booking.routes');
-const auditRoutes = require('./modules/audits/audit.routes');
-const reportRoutes = require('./modules/reports/report.routes');
+const applicationRoutes = require('./modules/applications/application.routes');
+const evcRoutes = require('./modules/evc/evc.routes');
+const complianceRoutes = require('./modules/compliance/compliance.routes');
+const alertRoutes = require('./modules/alerts/alert.routes');
+const institutionRoutes = require('./modules/institutions/institution.routes');
+const dashboardRoutes = require('./modules/dashboard/dashboard.routes');
+const userRoutes = require('./modules/users/user.routes');
 const notificationRoutes = require('./modules/notifications/notification.routes');
 const activityLogRoutes = require('./modules/notifications/activityLog.routes');
 const aiRoutes = require('./modules/ai/ai.routes');
+const { startScheduler } = require('./modules/alerts/engine');
 
 app.use('/api/v1/auth', authRouter);
-app.use('/api/v1/dashboard', dashboardRouter);
-app.use('/api/v1/departments', departmentRouter);
-app.use('/api/v1/categories', categoryRouter);
-app.use('/api/v1/employees', employeeRouter);
-app.use('/api/v1/assets', assetRouter);
-app.use('/api/v1', allocationRouter);
-app.use('/api/v1/maintenance-requests', maintenanceRouter);
-app.use('/api/v1/bookings', bookingRoutes);
-app.use('/api/v1/audit-cycles', auditRoutes);
-app.use('/api/v1/reports', reportRoutes);
+app.use('/api/v1/applications', applicationRoutes);
+app.use('/api/v1/evc', evcRoutes);
+app.use('/api/v1/compliance', complianceRoutes);
+app.use('/api/v1/alerts', alertRoutes);
+app.use('/api/v1/institutions', institutionRoutes);
+app.use('/api/v1/dashboard', dashboardRoutes);
+app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/notifications', notificationRoutes);
 app.use('/api/v1/activity-logs', activityLogRoutes);
 app.use('/api/v1/ai', aiRoutes);
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Error handling middleware
+// Serve the built client when present (single-port demo: npm run build in client/)
+const dist = path.join(__dirname, '../client/dist');
+app.use(express.static(dist));
+app.get(/^\/(?!api|uploads).*/, (req, res, next) => res.sendFile(path.join(dist, 'index.html'), err => err && next()));
+
 app.use((err, req, res, next) => {
   console.error(err);
-  res.status(err.status || 500).json({
-    success: false,
-    data: null,
-    error: {
-      code: err.code || 'INTERNAL_SERVER_ERROR',
-      message: err.message || 'An unexpected error occurred'
-    }
-  });
+  res.status(err.status || 500).json({ success: false, data: null, error: err.message || 'An unexpected error occurred' });
 });
 
 const { initializeOllama } = require('./shared/ollamaSetup');
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-  console.log(`SiteLine Server running on port ${port}`);
-  // Auto-start Ollama and pull model in background
-  initializeOllama();
+  console.log(`SiteLine AICTE server running on port ${port}`);
+  startScheduler();
+  if (process.env.AI_AUTOSTART !== 'false') initializeOllama();
 });

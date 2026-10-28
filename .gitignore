@@ -5,3 +5,5 @@ dist/
 *.db
 *.db-journal
 test_login.mjs
+
+uploads/

@@ -1,35 +1,35 @@
 import { useState, useEffect, useRef } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Package, ArrowLeftRight, Wrench, Calendar, ClipboardCheck, BarChart3, Building2, Bot, Activity, Settings, LogOut, Bell, Search, Menu, X, ChevronDown, TrendingUp } from 'lucide-react';
+import { LayoutDashboard, FileStack, CalendarCheck, ShieldCheck, Building2, Siren, BarChart3, Bot, Activity, Settings, LogOut, Bell, Search, Menu, X, ChevronDown } from 'lucide-react';
 import CommandPalette from './CommandPalette';
 import { apiClient } from '../api/client';
 
+const ALL = ['Admin', 'Officer', 'Expert', 'Institution'];
+const OFFICE = ['Admin', 'Officer'];
 const NAV_SECTIONS = [
   {
-    label: 'Main',
+    label: 'Approvals',
     items: [
-      { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-      { to: '/assets', icon: Package, label: 'Assets' },
-      { to: '/allocations', icon: ArrowLeftRight, label: 'Allocations' },
-      { to: '/maintenance', icon: Wrench, label: 'Maintenance' },
-      { to: '/bookings', icon: Calendar, label: 'Bookings' },
+      { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', roles: ALL },
+      { to: '/applications', icon: FileStack, label: 'Applications', roles: ALL, alt: { Institution: 'My Applications' } },
+      { to: '/evc', icon: CalendarCheck, label: 'EVC Schedule', roles: ['Admin', 'Officer', 'Expert'], alt: { Expert: 'My Visits' } },
     ]
   },
   {
-    label: 'Management',
+    label: 'Compliance',
     items: [
-      { to: '/audits', icon: ClipboardCheck, label: 'Audits' },
-      { to: '/reports', icon: BarChart3, label: 'Reports' },
-      { to: '/analytics', icon: TrendingUp, label: 'Analytics' },
-      { to: '/organization', icon: Building2, label: 'Organization' },
+      { to: '/compliance', icon: ShieldCheck, label: 'Documents & Undertakings', roles: ['Admin', 'Officer', 'Institution'], alt: { Institution: 'My Compliance' } },
+      { to: '/institutions', icon: Building2, label: 'Institutions', roles: OFFICE },
+      { to: '/alerts', icon: Siren, label: 'Alert Center', roles: ['Admin', 'Officer', 'Institution'], alt: { Institution: 'My Alerts' } },
+      { to: '/reports', icon: BarChart3, label: 'Reports', roles: OFFICE },
     ]
   },
   {
     label: 'System',
     items: [
-      { to: '/ai-chat', icon: Bot, label: 'AI Assistant' },
-      { to: '/activity-logs', icon: Activity, label: 'Activity Logs' },
-      { to: '/settings', icon: Settings, label: 'Settings' },
+      { to: '/ai-chat', icon: Bot, label: 'AI Assistant', roles: ALL },
+      { to: '/activity-logs', icon: Activity, label: 'Audit Trail', roles: OFFICE },
+      { to: '/settings', icon: Settings, label: 'Settings', roles: ALL },
     ]
   }
 ];
@@ -50,7 +50,8 @@ export default function Layout() {
   const user = JSON.parse(localStorage.getItem('user') || '{}');
   const initials = (user.name || 'U').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
 
-  const currentPage = NAV_SECTIONS.flatMap(s => s.items).find(i => location.pathname.startsWith(i.to))?.label || 'Dashboard';
+  const sections = NAV_SECTIONS.map(sec => ({ ...sec, items: sec.items.filter(i => i.roles.includes(user.role)).map(i => ({ ...i, label: i.alt?.[user.role] || i.label })) })).filter(sec => sec.items.length);
+  const currentPage = sections.flatMap(s => s.items).find(i => location.pathname.startsWith(i.to))?.label || 'Dashboard';
 
   useEffect(() => {
     const handler = (e) => {
@@ -64,9 +65,10 @@ export default function Layout() {
   }, []);
 
   useEffect(() => {
-    apiClient.get('/notifications?limit=5').then(d => {
-      setNotifications(Array.isArray(d) ? d : d?.notifications || []);
-      setUnreadCount(Array.isArray(d) ? d.filter(n => !n.is_read).length : d?.unreadCount || 0);
+    apiClient.get('/notifications?limit=12').then(d => {
+      const list = Array.isArray(d) ? d : d?.notifications || [];
+      setNotifications(list);
+      setUnreadCount(list.filter(n => !n.is_read).length);
     }).catch(() => {});
     apiClient.get('/ai/status').then(d => setAiOnline(d?.online)).catch(() => {});
   }, [location.pathname]);
@@ -99,14 +101,14 @@ export default function Layout() {
         <div className="sl-sidebar__logo">
           <div className="sl-sidebar__logo-icon">SL</div>
           <span className="sl-sidebar__logo-text">SiteLine</span>
-          <span className="sl-sidebar__logo-badge">Pro</span>
+          <span className="sl-sidebar__logo-badge">AICTE</span>
           <button className="sl-btn sl-btn--ghost sl-btn--icon sl-btn--sm" onClick={() => setSidebarOpen(false)} style={{ marginLeft: 'auto', display: 'none' }} id="sidebar-close-mobile">
             <X size={16} />
           </button>
         </div>
 
         <nav className="sl-sidebar__nav">
-          {NAV_SECTIONS.map(section => (
+          {sections.map(section => (
             <div key={section.label}>
               <div className="sl-sidebar__section-label">{section.label}</div>
               {section.items.map(item => (
@@ -122,7 +124,7 @@ export default function Layout() {
         <div className="sl-sidebar__footer">
           <div className={`sl-ai-status ${aiOnline ? 'sl-ai-status--online' : 'sl-ai-status--offline'}`}>
             <span className="sl-ai-status__dot" />
-            <span>AI {aiOnline ? 'Online' : 'Offline'}</span>
+            <span>AI {aiOnline ? 'Online' : 'Fallback mode'}</span>
           </div>
         </div>
       </aside>
@@ -134,7 +136,7 @@ export default function Layout() {
               <Menu size={20} />
             </button>
             <div className="sl-topbar__breadcrumb">
-              <span>SiteLine</span>
+              <span>AICTE Approvals</span>
               <span className="sl-topbar__breadcrumb-sep">/</span>
               <span className="sl-topbar__breadcrumb-current">{currentPage}</span>
             </div>
@@ -161,10 +163,10 @@ export default function Layout() {
                     {notifications.length === 0 ? (
                       <div className="sl-p-5 sl-text-center sl-text-muted sl-text-sm">No notifications</div>
                     ) : notifications.map(n => (
-                      <div key={n.id} className={`sl-notif-item ${!n.is_read ? 'sl-notif-item--unread' : ''}`}>
+                      <div key={n.id} className={`sl-notif-item ${!n.is_read ? 'sl-notif-item--unread' : ''}`} style={{ cursor: n.related_entity_type === 'Application' ? 'pointer' : undefined }} onClick={() => { if (n.related_entity_type === 'Application') { navigate(`/applications/${n.related_entity_id}`); setNotifOpen(false); } }}>
                         <div className="sl-notif-item__content">
                           <div className="sl-notif-item__message">{n.message}</div>
-                          <div className="sl-notif-item__time">{new Date(n.created_at).toLocaleDateString()}</div>
+                          <div className="sl-notif-item__time">{n.type} · {new Date(n.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
                         </div>
                       </div>
                     ))}
@@ -184,6 +186,7 @@ export default function Layout() {
                     <div className="sl-font-semibold sl-text-sm">{user.name || 'User'}</div>
                     <div className="sl-text-xs sl-text-muted">{user.email}</div>
                     <div className="sl-badge sl-badge--accent sl-mt-1">{user.role}</div>
+                    {user.designation && <div className="sl-text-xs sl-text-muted sl-mt-1">{user.designation}</div>}
                   </div>
                   <button className="sl-dropdown__item" onClick={() => { navigate('/settings'); setUserMenuOpen(false); }}>
                     <Settings size={14} /> Settings

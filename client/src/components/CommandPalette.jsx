@@ -1,26 +1,29 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Package, LayoutDashboard, Wrench, Calendar, BarChart3, Bot, Building2, ArrowLeftRight, ClipboardCheck, Activity, Settings, Plus, X } from 'lucide-react';
+import { Search, LayoutDashboard, FileStack, CalendarCheck, ShieldCheck, Building2, Siren, BarChart3, Bot, Activity, Settings, Plus, ShieldQuestion } from 'lucide-react';
 import { apiClient } from '../api/client';
 
 const PAGES = [
   { label: 'Dashboard', to: '/dashboard', icon: LayoutDashboard },
-  { label: 'Assets', to: '/assets', icon: Package },
-  { label: 'Allocations', to: '/allocations', icon: ArrowLeftRight },
-  { label: 'Maintenance', to: '/maintenance', icon: Wrench },
-  { label: 'Bookings', to: '/bookings', icon: Calendar },
-  { label: 'Audits', to: '/audits', icon: ClipboardCheck },
+  { label: 'Applications', to: '/applications', icon: FileStack },
+  { label: 'Pipeline board', to: '/applications?view=board', icon: FileStack },
+  { label: 'Applications past SLA', to: '/applications?overdue=1', icon: FileStack },
+  { label: 'EVC Schedule', to: '/evc', icon: CalendarCheck },
+  { label: 'Documents', to: '/compliance', icon: ShieldCheck },
+  { label: 'Expired documents', to: '/compliance?status=Expired', icon: ShieldCheck },
+  { label: 'Undertakings', to: '/compliance?tab=undertakings', icon: ShieldCheck },
+  { label: 'Institutions', to: '/institutions', icon: Building2 },
+  { label: 'Alert Center', to: '/alerts', icon: Siren },
   { label: 'Reports', to: '/reports', icon: BarChart3 },
-  { label: 'Organization', to: '/organization', icon: Building2 },
   { label: 'AI Assistant', to: '/ai-chat', icon: Bot },
-  { label: 'Activity Logs', to: '/activity-logs', icon: Activity },
+  { label: 'Audit Trail', to: '/activity-logs', icon: Activity },
+  { label: 'Verify a letter', to: '/verify', icon: ShieldQuestion },
   { label: 'Settings', to: '/settings', icon: Settings },
 ];
 
 const ACTIONS = [
-  { label: 'Add New Asset', to: '/assets', icon: Plus },
-  { label: 'Create Booking', to: '/bookings', icon: Calendar },
-  { label: 'Open AI Chat', to: '/ai-chat', icon: Bot },
+  { label: 'New application', to: '/applications?new=1', icon: Plus },
+  { label: 'Ask the AI assistant', to: '/ai-chat', icon: Bot },
 ];
 
 export default function CommandPalette({ onClose }) {
@@ -34,8 +37,8 @@ export default function CommandPalette({ onClose }) {
 
   useEffect(() => {
     if (query.length >= 2) {
-      apiClient.get(`/assets?search=${encodeURIComponent(query)}&limit=5`).then(d => {
-        setAssets(Array.isArray(d) ? d : d?.assets || []);
+      apiClient.get(`/applications?search=${encodeURIComponent(query)}&limit=6`).then(d => {
+        setAssets(Array.isArray(d) ? d : []);
       }).catch(() => setAssets([]));
     } else { setAssets([]); }
   }, [query]);
@@ -43,7 +46,7 @@ export default function CommandPalette({ onClose }) {
   const filteredPages = PAGES.filter(p => p.label.toLowerCase().includes(query.toLowerCase()));
   const allItems = [
     ...filteredPages.map(p => ({ ...p, type: 'page' })),
-    ...assets.map(a => ({ label: `${a.name} (${a.asset_tag})`, to: `/assets/${a.id}`, icon: Package, type: 'asset' })),
+    ...assets.map(a => ({ label: `${a.institution?.name} · ${a.app_number}`, to: `/applications/${a.id}`, icon: FileStack, type: 'asset' })),
     ...(query.length === 0 ? ACTIONS.map(a => ({ ...a, type: 'action' })) : []),
   ];
 
@@ -64,7 +67,7 @@ export default function CommandPalette({ onClose }) {
       <div className="sl-command" onKeyDown={handleKeyDown}>
         <div className="sl-command__input-wrapper">
           <Search size={18} className="sl-text-muted" />
-          <input ref={inputRef} className="sl-command__input" placeholder="Search assets, pages, actions..." value={query} onChange={e => { setQuery(e.target.value); setSelectedIndex(0); }} id="command-palette-input" />
+          <input ref={inputRef} className="sl-command__input" placeholder="Search applications, institutions, pages…" value={query} onChange={e => { setQuery(e.target.value); setSelectedIndex(0); }} id="command-palette-input" />
           <button className="sl-btn sl-btn--ghost sl-btn--sm" onClick={onClose}><X size={14} /></button>
         </div>
         <div className="sl-command__results">
@@ -75,15 +78,15 @@ export default function CommandPalette({ onClose }) {
               <div className="sl-command__item-text"><div className="sl-command__item-title">{item.label}</div></div>
             </div>
           ))}
-          {assets.length > 0 && <div className="sl-command__group-label">Assets</div>}
+          {assets.length > 0 && <div className="sl-command__group-label">Applications</div>}
           {assets.map((a, i) => {
             const idx = filteredPages.length + i;
             return (
-              <div key={a.id} className={`sl-command__item ${selectedIndex === idx ? 'active' : ''}`} onClick={() => handleSelect({ to: `/assets/${a.id}` })}>
-                <div className="sl-command__item-icon"><Package size={16} /></div>
+              <div key={a.id} className={`sl-command__item ${selectedIndex === idx ? 'active' : ''}`} onClick={() => handleSelect({ to: `/applications/${a.id}` })}>
+                <div className="sl-command__item-icon"><FileStack size={16} /></div>
                 <div className="sl-command__item-text">
-                  <div className="sl-command__item-title">{a.name}</div>
-                  <div className="sl-command__item-desc">{a.asset_tag} · {a.status}</div>
+                  <div className="sl-command__item-title">{a.institution?.name}</div>
+                  <div className="sl-command__item-desc">{a.app_number} · {a.stage_label}</div>
                 </div>
               </div>
             );

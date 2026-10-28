@@ -17,13 +17,13 @@ const signup = async (req, res) => {
         name,
         email,
         password_hash: hashedPassword,
-        role: 'Employee' // Hardcoded as per requirements
+        role: 'Institution'
       },
-      select: { id: true, name: true, email: true, role: true, department_id: true, status: true }
+      select: { id: true, name: true, email: true, role: true, status: true }
     });
 
     const token = jwt.sign(
-      { user_id: user.id, role: user.role, department_id: user.department_id },
+      { user_id: user.id, role: user.role },
       process.env.JWT_SECRET || 'fallback_secret_if_not_set',
       { expiresIn: '24h' }
     );
@@ -54,7 +54,7 @@ const login = async (req, res) => {
     }
 
     const token = jwt.sign(
-      { user_id: user.id, role: user.role, department_id: user.department_id },
+      { user_id: user.id, role: user.role },
       process.env.JWT_SECRET || 'fallback_secret_if_not_set',
       { expiresIn: '24h' }
     );

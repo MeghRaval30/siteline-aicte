@@ -16,7 +16,8 @@ export default function Settings() {
               <div><div className="sl-font-semibold sl-text-lg">{user.name || 'User'}</div><div className="sl-text-sm sl-text-secondary">{user.email}</div></div>
             </div>
             {[
-              { label: 'Role', value: user.role || 'Employee' },
+              { label: 'Role', value: user.role || '—' },
+              { label: 'Designation', value: user.designation || '—' },
               { label: 'Status', value: user.status || 'Active' },
               { label: 'User ID', value: user.id || 'N/A' },
             ].map(r => (
@@ -33,14 +34,15 @@ export default function Settings() {
           <div className="sl-card__body">
             <div className="sl-flex sl-items-center sl-gap-3 sl-mb-4">
               <div className="sl-sidebar__logo-icon">SL</div>
-              <div><div className="sl-font-semibold">SiteLine</div><div className="sl-text-xs sl-text-muted">Enterprise Asset Management</div></div>
+              <div><div className="sl-font-semibold">SiteLine · AICTE</div><div className="sl-text-xs sl-text-muted">Approval Workflow, Compliance Monitoring & Alerts (SIH26262)</div></div>
             </div>
-            <div className="sl-text-sm sl-text-secondary sl-mb-4">An AI-powered enterprise asset management platform with real-time tracking, predictive analytics, and intelligent automation.</div>
+            <div className="sl-text-sm sl-text-secondary sl-mb-4">Tracks every application through the APH stages with per-stage SLAs, schedules conflict-free EVC panels, monitors time-bound undertakings and document validity, and raises alerts from plain-English rules. A local AI model answers questions over live data, and a keyword fallback keeps it working offline.</div>
             {[
-              { label: 'Version', value: '2.0.0' },
+              { label: 'Version', value: '3.0.0-aicte' },
               { label: 'Frontend', value: 'React 18 + Vite' },
               { label: 'Backend', value: 'Express + Prisma' },
-              { label: 'AI Engine', value: 'Ollama (qwen2.5:7b-instruct)' },
+              { label: 'AI Engine', value: 'Ollama local model + keyword fallback' },
+              { label: 'Alert engine', value: 'Rule playbooks, every 10 min' },
               { label: 'Database', value: 'SQLite' },
             ].map(r => (
               <div key={r.label} className="sl-flex sl-items-center sl-justify-between sl-mb-2">

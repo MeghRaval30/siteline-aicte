@@ -1,87 +1,68 @@
 const express = require('express');
 const router = express.Router();
 const authenticate = require('../../shared/authenticate');
-const { runAgent } = require('./agent');
+const { runAgent, runOffline } = require('./agent');
 const prisma = require('../../shared/prismaClient');
-const { getOllamaStatus } = require('../../shared/ollamaSetup');
+const { pickModel } = require('../../shared/llm');
+const { DAY, ACTIVE_STAGES, slaInfo } = require('../../shared/workflow');
+const { appScope, instScope } = require('../../shared/scope');
 
-// POST /api/v1/ai/chat
+// POST /api/v1/ai/chat  { message, session_id, fast }
 router.post('/chat', authenticate, async (req, res) => {
   try {
-    const { message, session_id } = req.body;
+    const { message, session_id, fast } = req.body;
     if (!message) return res.status(400).json({ success: false, error: 'Message required' });
 
-    let session;
-    let conversationHistory = [];
-    if (session_id) {
-      session = await prisma.conversationSession.findUnique({ where: { id: session_id } }).catch(() => null);
-      if (session) conversationHistory = JSON.parse(session.messages || '[]');
-    }
-    if (!session) {
-      session = await prisma.conversationSession.create({ data: { user_id: req.user.id } });
-    }
+    let session = session_id ? await prisma.conversationSession.findUnique({ where: { id: session_id } }).catch(() => null) : null;
+    let history = session ? JSON.parse(session.messages || '[]') : [];
+    if (!session) session = await prisma.conversationSession.create({ data: { user_id: req.user.id } });
 
-    const { answer, trace } = await runAgent(message, conversationHistory);
+    const { answer, trace, engine } = fast ? await runOffline(message, req.user) : await runAgent(message, history, req.user);
 
-    conversationHistory.push({ role: 'user', content: message });
-    conversationHistory.push({ role: 'assistant', content: answer });
-    if (conversationHistory.length > 20) conversationHistory = conversationHistory.slice(-20);
+    history.push({ role: 'user', content: message }, { role: 'assistant', content: answer });
+    if (history.length > 12) history = history.slice(-12);
+    await prisma.conversationSession.update({ where: { id: session.id }, data: { messages: JSON.stringify(history) } });
 
-    await prisma.conversationSession.update({
-      where: { id: session.id },
-      data: { messages: JSON.stringify(conversationHistory) }
-    });
-
-    res.json({ success: true, data: { answer, trace, session_id: session.id } });
+    res.json({ success: true, data: { answer, trace, engine, session_id: session.id } });
   } catch (error) {
-    console.error('AI chat error:', error.message);
-    if (error.message?.includes('Ollama') || error.message?.includes('fetch') || error.cause?.code === 'ECONNREFUSED') {
-      return res.json({ success: true, data: { answer: 'AI is currently offline. Please ensure Ollama is running with: `ollama run qwen2.5:7b-instruct`', trace: [], session_id: req.body.session_id || null, offline: true } });
-    }
-    res.status(500).json({ success: false, error: 'AI service error' });
+    console.error('AI chat error:', error);
+    res.status(500).json({ success: false, error: 'AI service error: ' + error.message });
   }
 });
 
-// GET /api/v1/ai/status
 router.get('/status', authenticate, async (req, res) => {
-  try {
-    const status = getOllamaStatus();
-    // Also do a live check
-    const response = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(3000) });
-    const data = await response.json();
-    const hasModel = data.models?.some(m => m.name?.includes('qwen'));
-    res.json({ success: true, data: { online: true, model_available: hasModel, pulling: status.pulling, error: status.error } });
-  } catch {
-    const status = getOllamaStatus();
-    res.json({ success: true, data: { online: false, model_available: false, pulling: status.pulling, error: status.error } });
-  }
+  const model = await pickModel();
+  res.json({ success: true, data: { online: !!model, model, fallback: 'keyword router' } });
 });
 
-// GET /api/v1/ai/insights
+// Rule-based insight cards for the dashboard
 router.get('/insights', authenticate, async (req, res) => {
   try {
-    const [overdueCount, pendingMaint, lowCondition, totalAssets] = await Promise.all([
-      prisma.allocation.count({ where: { status: 'Active', expected_return_date: { lt: new Date() } } }),
-      prisma.maintenanceRequest.count({ where: { status: { in: ['Pending', 'Approved'] } } }),
-      prisma.asset.count({ where: { condition: 'Poor' } }),
-      prisma.asset.count()
+    const now = new Date();
+    const [apps, expiring, overdueU, reports] = await Promise.all([
+      prisma.application.findMany({ where: { AND: [appScope(req.user), { stage: { in: ACTIVE_STAGES } }] } }),
+      prisma.complianceDocument.count({ where: { institution: instScope(req.user), status: 'Expiring Soon', valid_to: { lte: new Date(now.getTime() + 30 * DAY) } } }),
+      prisma.undertaking.count({ where: { institution: instScope(req.user), status: 'Overdue' } }),
+      prisma.eVCVisit.count({ where: { application: appScope(req.user), status: 'Scheduled', visit_date: { lt: now } } }),
     ]);
-    const insights = [];
-    if (overdueCount > 0) insights.push({ type: 'warning', message: `${overdueCount} asset${overdueCount > 1 ? 's' : ''} overdue for return`, severity: 'high' });
-    if (pendingMaint > 0) insights.push({ type: 'info', message: `${pendingMaint} maintenance request${pendingMaint > 1 ? 's' : ''} awaiting action`, severity: 'medium' });
-    if (lowCondition > 0) insights.push({ type: 'danger', message: `${lowCondition} asset${lowCondition > 1 ? 's' : ''} in poor condition`, severity: 'high' });
-    if (totalAssets > 0) insights.push({ type: 'success', message: `${totalAssets} total assets tracked`, severity: 'low' });
-    res.json({ success: true, data: insights });
+    const breached = apps.map(a => ({ a, s: slaInfo(a, now) })).filter(x => x.s.breached);
+    const byStage = {};
+    breached.forEach(x => { byStage[x.a.stage] = (byStage[x.a.stage] || 0) + 1; });
+    const worst = Object.entries(byStage).sort((a, b) => b[1] - a[1])[0];
+    const out = [];
+    if (worst) out.push({ type: 'danger', message: `Bottleneck: ${worst[1]} applications past SLA at ${worst[0].replace('_', ' ')}` });
+    if (expiring) out.push({ type: 'warning', message: `${expiring} compliance documents lapse within 30 days` });
+    if (overdueU) out.push({ type: 'danger', message: `${overdueU} undertakings are overdue — show-cause candidates` });
+    if (reports) out.push({ type: 'warning', message: `${reports} EVC reports not filed after the visit` });
+    out.push({ type: 'info', message: `${apps.length} applications in process, ${breached.length} beyond SLA` });
+    res.json({ success: true, data: out });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// DELETE /api/v1/ai/sessions/:id
 router.delete('/sessions/:id', authenticate, async (req, res) => {
-  try {
-    await prisma.conversationSession.delete({ where: { id: req.params.id } });
-  } catch { /* ignore */ }
+  try { await prisma.conversationSession.delete({ where: { id: req.params.id } }); } catch { /* ignore */ }
   res.json({ success: true });
 });
 

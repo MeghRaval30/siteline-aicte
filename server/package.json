@@ -1,13 +1,15 @@
 {
   "name": "siteline-server",
   "version": "1.0.0",
-  "description": "SiteLine API",
+  "description": "SiteLine AICTE — approval workflow, compliance monitoring and alert management API",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "db:migrate": "prisma migrate dev",
-    "seed": "node prisma/seed.js"
+    "db:push": "prisma db push --accept-data-loss",
+    "seed": "node prisma/seed.js",
+    "setup": "prisma db push --accept-data-loss && node prisma/seed.js",
+    "e2e": "node e2e.js"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

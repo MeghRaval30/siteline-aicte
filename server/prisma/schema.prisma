@@ -7,217 +7,241 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Roles: Admin (AICTE Approval Bureau), Officer (Regional Office scrutiny),
+// Expert (EVC member), Institution (applicant institution user)
 model User {
-  id            Int      @id @default(autoincrement())
-  name          String
-  email         String   @unique
-  password_hash String
-  department_id Int?
-  role          String   @default("Employee")
-  status        String   @default("Active")
-  created_at    DateTime @default(now())
-  updated_at    DateTime @updatedAt
+  id             Int      @id @default(autoincrement())
+  name           String
+  email          String   @unique
+  password_hash  String
+  role           String   @default("Officer")
+  status         String   @default("Active")
+  phone          String?
+  designation    String?
+  state          String?
+  specialization String?
+  region_id      Int?
+  institution_id Int?
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
 
-  department    Department? @relation("UserDepartment", fields: [department_id], references: [id])
-  headed_departments Department[] @relation("DepartmentHead")
-  
-  allocations         Allocation[] @relation("AllocationHolder")
-  allocations_made    Allocation[] @relation("Allocator")
-  transfer_requests_to TransferRequest[] @relation("TransferRequestTo")
-  transfer_requests_by TransferRequest[] @relation("TransferRequestBy")
-  transfer_requests_approved TransferRequest[] @relation("TransferRequestApprover")
-  maintenance_raised   MaintenanceRequest[] @relation("MaintenanceRaisedBy")
-  maintenance_approved MaintenanceRequest[] @relation("MaintenanceApprover")
-  bookings             Booking[] @relation("BookingUser")
-  audit_cycles_created AuditCycle[] @relation("AuditCycleCreator")
-  audit_cycles_closed  AuditCycle[] @relation("AuditCycleCloser")
-  audit_items_verified AuditItem[] @relation("AuditItemVerifier")
-  notifications        Notification[]
-  activity_logs        ActivityLog[]
-  audit_cycle_auditors AuditCycleAuditor[]
+  region      Region?      @relation(fields: [region_id], references: [id])
+  institution Institution? @relation(fields: [institution_id], references: [id])
+
+  transitions           StageTransition[]
+  assigned_applications Application[]       @relation("AssignedOfficer")
+  deficiencies_raised   Deficiency[]
+  evc_memberships       EVCMember[]
+  notifications         Notification[]
+  activity_logs         ActivityLog[]
   conversation_sessions ConversationSession[]
 }
 
-model Department {
+model Region {
+  id         Int    @id @default(autoincrement())
+  name       String @unique
+  code       String @unique
+  city       String
+  states     String // comma separated states covered
+
+  institutions Institution[]
+  users        User[]
+}
+
+model Institution {
+  id                Int      @id @default(autoincrement())
+  aicte_id          String   @unique
+  name              String
+  type              String // Engineering, Management, Pharmacy, Architecture, Polytechnic, MCA, HMCT
+  ownership         String // Government, Private Self-Financing, Government-Aided, Deemed
+  state             String
+  city              String
+  region_id         Int
+  established_year  Int
+  approved_intake   Int      @default(0)
+  status            String   @default("Active") // Active, Under Show-Cause, Suspended, Closed
+  head_name         String?
+  email             String?
+  phone             String?
+  created_at        DateTime @default(now())
+
+  region       Region               @relation(fields: [region_id], references: [id])
+  users        User[]
+  applications Application[]
+  documents    ComplianceDocument[]
+  undertakings Undertaking[]
+  alerts       Alert[]
+}
+
+model Application {
+  id                  Int       @id @default(autoincrement())
+  app_number          String    @unique
+  institution_id      Int
+  type                String // New Institution, Extension of Approval, Increase in Intake, New Course, Change of Name, Change of Site, Closure
+  academic_year       String
+  stage               String    @default("SUBMITTED")
+  status              String    @default("In Process") // In Process, Approved, Conditionally Approved, Rejected, Withdrawn
+  stage_entered_at    DateTime  @default(now())
+  submitted_at        DateTime  @default(now())
+  decided_at          DateTime?
+  assigned_officer_id Int?
+  priority            String    @default("Normal") // Normal, High, Court-Directed
+  intake_requested    Int?
+  courses             String? // comma separated
+  decision_remarks    String?
+  letter_code         String?   @unique
+  rescrutiny_count    Int       @default(0)
+  created_at          DateTime  @default(now())
+  updated_at          DateTime  @updatedAt
+
+  institution      Institution          @relation(fields: [institution_id], references: [id])
+  assigned_officer User?                @relation("AssignedOfficer", fields: [assigned_officer_id], references: [id])
+  transitions      StageTransition[]
+  deficiencies     Deficiency[]
+  evc_visits       EVCVisit[]
+  undertakings     Undertaking[]
+  documents        ComplianceDocument[]
+}
+
+model StageTransition {
   id             Int      @id @default(autoincrement())
-  name           String   @unique
-  head_user_id   Int?
-  parent_dept_id Int?
-  status         String   @default("Active")
+  application_id Int
+  from_stage     String?
+  to_stage       String
+  actor_id       Int?
+  remarks        String?
+  days_in_stage  Int      @default(0)
+  sla_breached   Boolean  @default(false)
   created_at     DateTime @default(now())
 
-  head_user      User?       @relation("DepartmentHead", fields: [head_user_id], references: [id])
-  parent_dept    Department? @relation("ParentDepartment", fields: [parent_dept_id], references: [id])
-  child_depts    Department[] @relation("ParentDepartment")
-  users          User[]      @relation("UserDepartment")
-
-  allocations          Allocation[]
-  transfer_requests_to TransferRequest[]
-  bookings             Booking[]
-  audit_cycles         AuditCycle[]
+  application Application @relation(fields: [application_id], references: [id])
+  actor       User?       @relation(fields: [actor_id], references: [id])
 }
 
-model AssetCategory {
-  id            Int      @id @default(autoincrement())
-  name          String   @unique
-  description   String?
-  custom_fields String?
-  created_at    DateTime @default(now())
+model Deficiency {
+  id             Int       @id @default(autoincrement())
+  application_id Int
+  raised_by      Int?
+  category       String // Land, Building, Faculty, Infrastructure, Financial, Documents, Library, Laboratory
+  description    String
+  severity       String    @default("Major") // Minor, Major, Critical
+  status         String    @default("Open") // Open, Responded, Accepted, Rejected
+  response       String?
+  due_date       DateTime?
+  responded_at   DateTime?
+  created_at     DateTime  @default(now())
 
-  assets        Asset[]
+  application Application @relation(fields: [application_id], references: [id])
+  raiser      User?       @relation(fields: [raised_by], references: [id])
 }
 
-model Asset {
-  id                     Int      @id @default(autoincrement())
-  asset_tag              String   @unique
-  name                   String
-  category_id            Int
-  serial_number          String?
-  acquisition_date       DateTime?
-  acquisition_cost       Decimal?
-  condition              String
-  location               String?
-  photo_url              String?
-  documents              String?
-  is_bookable            Boolean  @default(false)
-  status                 String
-  pre_maintenance_status String?
-  qr_code                String?
-  created_at             DateTime @default(now())
-  updated_at             DateTime @updatedAt
+model EVCVisit {
+  id             Int       @id @default(autoincrement())
+  application_id Int
+  visit_date     DateTime
+  mode           String    @default("Physical") // Physical, Virtual, Hybrid
+  status         String    @default("Scheduled") // Scheduled, Completed, Rescheduled, Cancelled
+  recommendation String? // Recommended, Not Recommended, Recommended with Conditions
+  report         String?
+  score          Int? // 0-100 infrastructure score from the visit
+  completed_at   DateTime?
+  created_at     DateTime  @default(now())
 
-  category               AssetCategory @relation(fields: [category_id], references: [id])
-
-  allocations            Allocation[]
-  transfer_requests      TransferRequest[]
-  maintenance_requests   MaintenanceRequest[]
-  bookings               Booking[]
-  audit_items            AuditItem[]
+  application Application @relation(fields: [application_id], references: [id])
+  members     EVCMember[]
 }
 
-model Allocation {
-  id                    Int      @id @default(autoincrement())
-  asset_id              Int
-  holder_user_id        Int?
-  holder_department_id  Int?
-  allocated_by          Int
-  allocated_at          DateTime @default(now())
-  expected_return_date  DateTime?
-  actual_return_date    DateTime?
-  condition_at_checkout String
-  condition_at_checkin  String?
-  status                String
-  created_at            DateTime @default(now())
+model EVCMember {
+  visit_id Int
+  user_id  Int
+  is_chair Boolean @default(false)
 
-  asset                 Asset       @relation(fields: [asset_id], references: [id])
-  holder_user           User?       @relation("AllocationHolder", fields: [holder_user_id], references: [id])
-  holder_department     Department? @relation(fields: [holder_department_id], references: [id])
-  allocator             User        @relation("Allocator", fields: [allocated_by], references: [id])
-  
-  transfer_requests_from TransferRequest[]
+  visit EVCVisit @relation(fields: [visit_id], references: [id])
+  user  User     @relation(fields: [user_id], references: [id])
+
+  @@id([visit_id, user_id])
 }
 
-model TransferRequest {
-  id                         Int      @id @default(autoincrement())
-  asset_id                   Int
-  from_allocation_id         Int
-  requested_to_user_id       Int?
-  requested_to_department_id Int?
-  requested_by               Int
-  status                     String
-  approved_by                Int?
-  requested_at               DateTime @default(now())
-  resolved_at                DateTime?
-  notes                      String?
+// A time-bound undertaking attached to a conditional approval
+model Undertaking {
+  id              Int       @id @default(autoincrement())
+  institution_id  Int
+  application_id  Int?
+  title           String
+  description     String?
+  category        String // Lease Renewal, Faculty Recruitment, Building Completion, Fire NOC, Land Conversion, Library, Accreditation
+  due_date        DateTime
+  status          String    @default("Pending") // Pending, Submitted, Verified, Overdue, Breached, Waived
+  submission_note String?
+  submitted_at    DateTime?
+  verified_at     DateTime?
+  verifier_note   String?
+  created_at      DateTime  @default(now())
 
-  asset                      Asset       @relation(fields: [asset_id], references: [id])
-  from_allocation            Allocation  @relation(fields: [from_allocation_id], references: [id])
-  requested_to_user          User?       @relation("TransferRequestTo", fields: [requested_to_user_id], references: [id])
-  requested_to_department    Department? @relation(fields: [requested_to_department_id], references: [id])
-  requester                  User        @relation("TransferRequestBy", fields: [requested_by], references: [id])
-  approver                   User?       @relation("TransferRequestApprover", fields: [approved_by], references: [id])
+  institution Institution  @relation(fields: [institution_id], references: [id])
+  application Application? @relation(fields: [application_id], references: [id])
 }
 
-model MaintenanceRequest {
-  id                Int      @id @default(autoincrement())
-  asset_id          Int
-  raised_by         Int
-  issue_description String
-  priority          String
-  photo_url         String?
-  status            String
-  approved_by       Int?
-  rejected_reason   String?
-  technician_name   String?
-  resolution_notes  String?
-  created_at        DateTime @default(now())
-  resolved_at       DateTime?
+// Prescribed documents with validity (lease deed, fire NOC, ...)
+model ComplianceDocument {
+  id                Int       @id @default(autoincrement())
+  institution_id    Int
+  application_id    Int?
+  doc_type          String
+  doc_number        String?
+  issued_by         String?
+  valid_from        DateTime?
+  valid_to          DateTime? // null = permanent
+  status            String    @default("Pending Verification") // Pending Verification, Valid, Expiring Soon, Expired, Rejected, Superseded
+  file_name         String?
+  file_url          String?
+  verified_by       String?
+  remarks           String?
+  renewal_of_id     Int?
+  created_at        DateTime  @default(now())
 
-  asset             Asset @relation(fields: [asset_id], references: [id])
-  raiser            User  @relation("MaintenanceRaisedBy", fields: [raised_by], references: [id])
-  approver          User? @relation("MaintenanceApprover", fields: [approved_by], references: [id])
+  institution Institution  @relation(fields: [institution_id], references: [id])
+  application Application? @relation(fields: [application_id], references: [id])
 }
 
-model Booking {
-  id                         Int      @id @default(autoincrement())
-  asset_id                   Int
-  booked_by                  Int
-  on_behalf_of_department_id Int?
-  start_time                 DateTime
-  end_time                   DateTime
-  status                     String
-  purpose                    String?
-  cancelled_by               Int?
-  cancelled_at               DateTime?
-  created_at                 DateTime @default(now())
+// Playbook-style standing rule: watches a condition, raises an alert, never acts.
+model AlertRule {
+  id          Int       @id @default(autoincrement())
+  name        String
+  trigger     String // DOC_EXPIRING, DOC_EXPIRED, UNDERTAKING_DUE, UNDERTAKING_OVERDUE, STAGE_SLA_BREACH, EVC_UPCOMING, EVC_REPORT_PENDING, DEFICIENCY_OVERDUE
+  params      String    @default("{}") // JSON, e.g. {"days":30,"doc_type":"Land Lease Deed"}
+  criteria    String    @default("{}") // JSON segment, e.g. {"region":"SRO","type":"Engineering"}
+  severity    String    @default("Medium") // Low, Medium, High, Critical
+  notify_roles String   @default("Admin,Officer")
+  notify_institution Boolean @default(true)
+  active      Boolean   @default(true)
+  nl_prompt   String?
+  last_run    DateTime?
+  created_at  DateTime  @default(now())
 
-  asset                      Asset       @relation(fields: [asset_id], references: [id])
-  user                       User        @relation("BookingUser", fields: [booked_by], references: [id])
-  on_behalf_of_dept          Department? @relation(fields: [on_behalf_of_department_id], references: [id])
+  alerts Alert[]
 }
 
-model AuditCycle {
-  id                  Int      @id @default(autoincrement())
-  name                String
-  scope_department_id Int?
-  scope_location      String?
-  start_date          DateTime
-  end_date            DateTime
-  status              String
-  created_by          Int
-  closed_by           Int?
-  closed_at           DateTime?
+model Alert {
+  id              Int       @id @default(autoincrement())
+  rule_id         Int?
+  institution_id  Int?
+  entity_type     String // Application, Document, Undertaking, EVCVisit, Deficiency
+  entity_id       Int
+  title           String
+  detail          String?
+  severity        String    @default("Medium")
+  status          String    @default("Open") // Open, Acknowledged, Resolved
+  fired_at        DateTime  @default(now())
+  acknowledged_by String?
+  acknowledged_at DateTime?
+  resolved_at     DateTime?
 
-  scope_department    Department? @relation(fields: [scope_department_id], references: [id])
-  creator             User        @relation("AuditCycleCreator", fields: [created_by], references: [id])
-  closer              User?       @relation("AuditCycleCloser", fields: [closed_by], references: [id])
-  
-  audit_items         AuditItem[]
-  auditors            AuditCycleAuditor[]
-}
+  rule        AlertRule?   @relation(fields: [rule_id], references: [id])
+  institution Institution? @relation(fields: [institution_id], references: [id])
 
-model AuditCycleAuditor {
-  audit_cycle_id Int
-  auditor_user_id Int
-
-  audit_cycle    AuditCycle @relation(fields: [audit_cycle_id], references: [id])
-  auditor        User       @relation(fields: [auditor_user_id], references: [id])
-
-  @@id([audit_cycle_id, auditor_user_id])
-}
-
-model AuditItem {
-  id             Int      @id @default(autoincrement())
-  audit_cycle_id Int
-  asset_id       Int
-  result         String
-  notes          String?
-  verified_by    Int?
-  verified_at    DateTime?
-
-  audit_cycle    AuditCycle @relation(fields: [audit_cycle_id], references: [id])
-  asset          Asset      @relation(fields: [asset_id], references: [id])
-  verifier       User?      @relation("AuditItemVerifier", fields: [verified_by], references: [id])
+  // One alert per rule per entity: a rule that re-fires every run is a rule people learn to ignore.
+  @@unique([rule_id, entity_type, entity_id])
 }
 
 model Notification {
@@ -230,7 +254,7 @@ model Notification {
   is_read             Boolean  @default(false)
   created_at          DateTime @default(now())
 
-  user                User @relation(fields: [user_id], references: [id])
+  user User @relation(fields: [user_id], references: [id])
 }
 
 model ActivityLog {
@@ -242,7 +266,7 @@ model ActivityLog {
   metadata      String?
   created_at    DateTime @default(now())
 
-  actor         User? @relation(fields: [actor_user_id], references: [id])
+  actor User? @relation(fields: [actor_user_id], references: [id])
 }
 
 model ConversationSession {

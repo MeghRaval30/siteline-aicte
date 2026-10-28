@@ -1,0 +1,143 @@
+const express = require('express');
+const fs = require('fs');
+const path = require('path');
+const prisma = require('../../shared/prismaClient');
+const authenticate = require('../../shared/authenticate');
+const requireRole = require('../../shared/requireRole');
+const notify = require('../../shared/notify');
+const logActivity = require('../../shared/logActivity');
+const { DAY } = require('../../shared/workflow');
+const { EXPIRY_WINDOW_DAYS } = require('../../shared/compliance');
+const { instScope, ok, fail, h } = require('../../shared/scope');
+const { runAll } = require('../alerts/engine');
+const { DOC_TYPES } = require('../alerts/compiler');
+
+const router = express.Router();
+router.use(authenticate);
+
+const UPLOAD_DIR = path.join(__dirname, '../../uploads');
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+function statusFor(validTo, now = new Date()) {
+  if (!validTo) return 'Valid';
+  const t = new Date(validTo);
+  if (t < now) return 'Expired';
+  if (t - now <= EXPIRY_WINDOW_DAYS * DAY) return 'Expiring Soon';
+  return 'Valid';
+}
+
+const ownInstitution = (req, institutionId) => req.user.role !== 'Institution' || req.user.institution_id === institutionId;
+
+router.get('/doc-types', h(async (req, res) => ok(res, DOC_TYPES)));
+
+// ---------- documents ----------
+router.get('/documents', h(async (req, res) => {
+  const { status, doc_type, institution_id, expiring_days, search } = req.query;
+  const where = { AND: [{ institution: instScope(req.user) }] };
+  if (status) where.AND.push({ status: { in: status.split(',') } });
+  else where.AND.push({ status: { not: 'Superseded' } });
+  if (doc_type) where.AND.push({ doc_type });
+  if (institution_id) where.AND.push({ institution_id: Number(institution_id) });
+  if (expiring_days) where.AND.push({ valid_to: { gte: new Date(), lte: new Date(Date.now() + Number(expiring_days) * DAY) } });
+  if (search) where.AND.push({ OR: [{ institution: { name: { contains: search } } }, { doc_number: { contains: search } }] });
+  const docs = await prisma.complianceDocument.findMany({ where, include: { institution: { include: { region: true } } }, orderBy: [{ valid_to: 'asc' }] });
+  ok(res, docs.map(d => ({ ...d, days_left: d.valid_to ? Math.ceil((new Date(d.valid_to) - Date.now()) / DAY) : null })));
+}));
+
+// Upload a document, or a renewal of an existing one (renewal_of_id).
+router.post('/documents', h(async (req, res) => {
+  const { doc_type, doc_number, issued_by, valid_from, valid_to, renewal_of_id, file_name, file_data, remarks } = req.body;
+  const institution_id = req.user.role === 'Institution' ? req.user.institution_id : Number(req.body.institution_id);
+  if (!institution_id) return fail(res, 400, 'institution_id required');
+  if (!doc_type) return fail(res, 400, 'Document type required');
+  let file_url = null;
+  if (file_data && file_name) {
+    const safe = `${Date.now()}-${String(file_name).replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    const b64 = String(file_data).replace(/^data:[^;]+;base64,/, '');
+    fs.writeFileSync(path.join(UPLOAD_DIR, safe), Buffer.from(b64, 'base64'));
+    file_url = `/uploads/${safe}`;
+  }
+  if (renewal_of_id) {
+    const prev = await prisma.complianceDocument.findUnique({ where: { id: Number(renewal_of_id) } });
+    if (!prev || prev.institution_id !== institution_id) return fail(res, 400, 'Invalid document to renew');
+  }
+  const doc = await prisma.complianceDocument.create({
+    data: {
+      institution_id, doc_type, doc_number: doc_number || null, issued_by: issued_by || null,
+      valid_from: valid_from ? new Date(valid_from) : null, valid_to: valid_to ? new Date(valid_to) : null,
+      status: 'Pending Verification', file_name: file_name || null, file_url, remarks: remarks || null,
+      renewal_of_id: renewal_of_id ? Number(renewal_of_id) : null,
+    },
+    include: { institution: true },
+  });
+  const officers = await prisma.user.findMany({ where: { role: 'Officer', OR: [{ region_id: doc.institution.region_id }, { region_id: null }] } });
+  for (const o of officers) await notify({ userId: o.id, type: 'DOCUMENT', message: `${doc.institution.name} uploaded ${renewal_of_id ? 'a renewed ' : ''}${doc_type} for verification`, relatedEntityType: 'Document', relatedEntityId: doc.id });
+  await logActivity({ actorUserId: req.user.id, action: `Uploaded ${renewal_of_id ? 'renewal of ' : ''}${doc_type} (${doc.institution.name})`, entityType: 'Document', entityId: doc.id });
+  ok(res, doc);
+}));
+
+router.patch('/documents/:id/verify', requireRole(['Admin', 'Officer']), h(async (req, res) => {
+  const { decision, remarks } = req.body;
+  const doc = await prisma.complianceDocument.findUnique({ where: { id: Number(req.params.id) }, include: { institution: true } });
+  if (!doc) return fail(res, 404, 'Not found');
+  if (!['Valid', 'Rejected'].includes(decision)) return fail(res, 400, 'Decision must be Valid or Rejected');
+  const status = decision === 'Rejected' ? 'Rejected' : statusFor(doc.valid_to);
+  const upd = await prisma.complianceDocument.update({ where: { id: doc.id }, data: { status, verified_by: req.user.name, remarks: remarks || doc.remarks } });
+  if (decision === 'Valid' && doc.renewal_of_id) {
+    await prisma.complianceDocument.update({ where: { id: doc.renewal_of_id }, data: { status: 'Superseded' } });
+  }
+  const users = await prisma.user.findMany({ where: { institution_id: doc.institution_id } });
+  for (const u of users) await notify({ userId: u.id, type: 'DOCUMENT', message: `${doc.doc_type} ${decision === 'Valid' ? 'verified' : 'rejected'}${remarks ? `: ${remarks}` : ''}`, relatedEntityType: 'Document', relatedEntityId: doc.id });
+  await logActivity({ actorUserId: req.user.id, action: `${decision === 'Valid' ? 'Verified' : 'Rejected'} ${doc.doc_type} of ${doc.institution.name}`, entityType: 'Document', entityId: doc.id });
+  // Renewals close their own alerts: re-run the rules now rather than at the next tick.
+  const run = await runAll();
+  ok(res, { ...upd, alerts_auto_resolved: run.results?.reduce((s, r) => s + r.auto_resolved, 0) || 0 });
+}));
+
+// ---------- undertakings ----------
+router.get('/undertakings', h(async (req, res) => {
+  const { status, institution_id, category } = req.query;
+  const where = { AND: [{ institution: instScope(req.user) }] };
+  if (status) where.AND.push({ status: { in: status.split(',') } });
+  if (category) where.AND.push({ category });
+  if (institution_id) where.AND.push({ institution_id: Number(institution_id) });
+  const rows = await prisma.undertaking.findMany({ where, include: { institution: { include: { region: true } }, application: { select: { id: true, app_number: true } } }, orderBy: { due_date: 'asc' } });
+  ok(res, rows.map(u => ({ ...u, days_left: Math.ceil((new Date(u.due_date) - Date.now()) / DAY) })));
+}));
+
+router.post('/undertakings', requireRole(['Admin', 'Officer']), h(async (req, res) => {
+  const { institution_id, application_id, title, description, category, due_date } = req.body;
+  if (!institution_id || !title || !due_date) return fail(res, 400, 'institution_id, title and due_date are required');
+  const u = await prisma.undertaking.create({ data: { institution_id: Number(institution_id), application_id: application_id ? Number(application_id) : null, title, description, category: category || 'Lease Renewal', due_date: new Date(due_date) } });
+  ok(res, u);
+}));
+
+router.patch('/undertakings/:id/submit', h(async (req, res) => {
+  const u = await prisma.undertaking.findUnique({ where: { id: Number(req.params.id) }, include: { institution: true } });
+  if (!u) return fail(res, 404, 'Not found');
+  if (!ownInstitution(req, u.institution_id)) return fail(res, 403, 'Forbidden');
+  if (!req.body.submission_note) return fail(res, 400, 'Describe the compliance evidence');
+  const upd = await prisma.undertaking.update({ where: { id: u.id }, data: { status: 'Submitted', submission_note: req.body.submission_note, submitted_at: new Date() } });
+  const officers = await prisma.user.findMany({ where: { role: 'Officer', OR: [{ region_id: u.institution.region_id }, { region_id: null }] } });
+  for (const o of officers) await notify({ userId: o.id, type: 'UNDERTAKING', message: `${u.institution.name} submitted compliance for "${u.title}"`, relatedEntityType: 'Undertaking', relatedEntityId: u.id });
+  await logActivity({ actorUserId: req.user.id, action: `Submitted compliance for undertaking "${u.title}"`, entityType: 'Undertaking', entityId: u.id });
+  await runAll();
+  ok(res, upd);
+}));
+
+router.patch('/undertakings/:id/review', requireRole(['Admin', 'Officer']), h(async (req, res) => {
+  const { decision, note } = req.body;
+  if (!['Verified', 'Breached', 'Waived', 'Pending'].includes(decision)) return fail(res, 400, 'Invalid decision');
+  const u = await prisma.undertaking.findUnique({ where: { id: Number(req.params.id) }, include: { institution: true } });
+  if (!u) return fail(res, 404, 'Not found');
+  const status = decision === 'Pending' ? (new Date(u.due_date) < new Date() ? 'Overdue' : 'Pending') : decision;
+  const upd = await prisma.undertaking.update({ where: { id: u.id }, data: { status, verifier_note: note || null, verified_at: decision === 'Verified' ? new Date() : null } });
+  if (decision === 'Breached') await prisma.institution.update({ where: { id: u.institution_id }, data: { status: 'Under Show-Cause' } });
+  const users = await prisma.user.findMany({ where: { institution_id: u.institution_id } });
+  for (const usr of users) await notify({ userId: usr.id, type: 'UNDERTAKING', message: `Undertaking "${u.title}" marked ${status}${note ? `: ${note}` : ''}`, relatedEntityType: 'Undertaking', relatedEntityId: u.id });
+  await logActivity({ actorUserId: req.user.id, action: `Marked undertaking "${u.title}" (${u.institution.name}) as ${status}`, entityType: 'Undertaking', entityId: u.id });
+  await runAll();
+  ok(res, upd);
+}));
+
+module.exports = router;
