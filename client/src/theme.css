@@ -176,3 +176,16 @@ input[type="checkbox"], input[type="range"] { accent-color: var(--sl-accent); }
 .sl-ai-status--online { background: var(--sl-success-muted); color: var(--sl-success); }
 .sl-ai-status--offline { background: var(--sl-warning-muted); color: var(--sl-warning); }
 .aq-greeting-mark { color: var(--sl-accent); margin-right: 10px; vertical-align: -3px; }
+
+/* ---- Import Studio ---- */
+.aq-steps { display: flex; gap: 8px; flex-wrap: wrap; }
+.aq-step { display: flex; align-items: center; gap: 8px; padding: 6px 14px 6px 6px; border-radius: 999px; background: #fff; border: 1px solid var(--sl-border-subtle); font-size: 13px; color: var(--sl-text-muted); }
+.aq-step__n { width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--sl-bg-hover); font-size: 11px; font-weight: 700; }
+.aq-step--on { color: var(--sl-text-primary); border-color: var(--sl-accent); font-weight: 600; }
+.aq-step--on .aq-step__n { background: var(--sl-accent); color: #fff; }
+.aq-step--done { color: var(--sl-success); }
+.aq-step--done .aq-step__n { background: var(--sl-success-muted); color: var(--sl-success); }
+.aq-drop { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 36px 20px; border: 2px dashed var(--sl-border-strong); border-radius: 12px; background: #faf9f5; cursor: pointer; transition: border-color .15s, background .15s; }
+.aq-drop:hover { border-color: var(--sl-accent); background: var(--sl-accent-subtle); }
+.aq-vote { display: inline-block; padding: 2px 8px; border-radius: 999px; background: rgba(31,30,29,0.05); color: var(--sl-text-secondary); white-space: nowrap; }
+.aq-vote--win { background: var(--sl-success-muted); color: var(--sl-success); font-weight: 600; }

@@ -333,6 +333,11 @@ async function main() {
 
   await prisma.activityLog.create({ data: { actor_user_id: admin.id, action: 'Seeded AICTE approval cycle 2027-28 demo data' } });
 
+  // Run the monitoring rules once so the Alert Center is populated straight away.
+  const { runAll } = require('../modules/alerts/engine');
+  const run = await runAll();
+  console.log(`Alert rules ran: ${run.results.reduce((t, r) => t + r.created, 0)} alerts raised`);
+
   const counts = await Promise.all(['institution', 'application', 'complianceDocument', 'undertaking', 'eVCVisit', 'user'].map(m => prisma[m].count()));
   console.log('Seeded:', { institutions: counts[0], applications: counts[1], documents: counts[2], undertakings: counts[3], evc_visits: counts[4], users: counts[5] });
   console.log('Logins (password demo1234): admin@aicte.gov.in, officer@aicte.gov.in, expert@aicte.gov.in, institute@sahyadri-it.edu.in');

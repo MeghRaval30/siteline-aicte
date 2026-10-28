@@ -14,6 +14,7 @@ const PAGES = [
   { label: 'Undertakings', to: '/compliance?tab=undertakings', icon: ShieldCheck },
   { label: 'Institutions', to: '/institutions', icon: Building2 },
   { label: 'Alert Center', to: '/alerts', icon: Siren },
+  { label: 'Import Studio (bulk Excel/CSV)', to: '/import', icon: Building2 },
   { label: 'Reports', to: '/reports', icon: BarChart3 },
   { label: 'AI Assistant', to: '/ai-chat', icon: Bot },
   { label: 'Audit Trail', to: '/activity-logs', icon: Activity },

@@ -30,6 +30,7 @@ const userRoutes = require('./modules/users/user.routes');
 const notificationRoutes = require('./modules/notifications/notification.routes');
 const activityLogRoutes = require('./modules/notifications/activityLog.routes');
 const aiRoutes = require('./modules/ai/ai.routes');
+const importRoutes = require('./modules/import/import.routes');
 const { startScheduler } = require('./modules/alerts/engine');
 
 app.use('/api/v1/auth', authRouter);
@@ -43,6 +44,7 @@ app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/notifications', notificationRoutes);
 app.use('/api/v1/activity-logs', activityLogRoutes);
 app.use('/api/v1/ai', aiRoutes);
+app.use('/api/v1/import', importRoutes);
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Serve the built client when present (single-port demo: npm run build in client/)

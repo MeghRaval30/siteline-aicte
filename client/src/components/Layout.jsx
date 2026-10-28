@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, FileStack, CalendarCheck, ShieldCheck, Building2, Siren, BarChart3, Bot, Activity, Settings, LogOut, Bell, Search, Menu, X, ChevronDown } from 'lucide-react';
+import { LayoutDashboard, FileStack, FileUp, CalendarCheck, ShieldCheck, Building2, Siren, BarChart3, Bot, Activity, Settings, LogOut, Bell, Search, Menu, X, ChevronDown } from 'lucide-react';
 import CommandPalette from './CommandPalette';
 import { apiClient } from '../api/client';
 
@@ -21,6 +21,7 @@ const NAV_SECTIONS = [
       { to: '/compliance', icon: ShieldCheck, label: 'Documents & Undertakings', roles: ['Admin', 'Officer', 'Institution'], alt: { Institution: 'My Compliance' } },
       { to: '/institutions', icon: Building2, label: 'Institutions', roles: OFFICE },
       { to: '/alerts', icon: Siren, label: 'Alert Center', roles: ['Admin', 'Officer', 'Institution'], alt: { Institution: 'My Alerts' } },
+      { to: '/import', icon: FileUp, label: 'Import Studio', roles: OFFICE },
       { to: '/reports', icon: BarChart3, label: 'Reports', roles: OFFICE },
     ]
   },

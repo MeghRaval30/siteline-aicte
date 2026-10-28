@@ -21,6 +21,7 @@ AICTE moves applications from technical institutions through scrutiny, re-scruti
 - **AI assistant with tools.** It answers questions such as "which applications are stuck past SLA?" or "status of Sahyadri Institute of Technology" by calling real database tools, and shows its reasoning trace. It runs locally on Ollama, so no data leaves the server. An instant keyword router keeps it working offline. Answers respect the asker's role.
 - **Compliance Health Score.** Every institution gets a score out of 100 and a grade from A to D. Every deducted point is explained, so reviewers can sort by risk and send bulk reminder digests.
 - **Verifiable letters.** LoA and LoR letters carry a QR code and a verification code. A public `/verify` page lets anyone, such as a student, parent or bank, check that a letter is genuine.
+- **AI Import Studio**, ported from odoo_2026. It takes registers and document lists as desks actually keep them: title rows, abbreviated headers, mixed date formats, "MH"/"maha.", CAPS names, "540 seats", duplicates and TOTAL rows. Three voters judge every column (header text, value shape and the local AI model), and the screen shows how each one voted. Values are cleaned, missing required columns can be filled for every row (provisional IDs, a default type), re-imports update instead of duplicating, and imported validity dates raise alerts immediately. Three realistic sample files are built in.
 - **Role-scoped views.** The Approval Bureau (Admin) sees the whole country, Regional Officers see their region, EVC experts see their panels, and institutions see only themselves. Every action is written to the audit trail.
 
 ## Run it
@@ -45,7 +46,7 @@ Reset the demo data at any time with `npm run seed --prefix server`. All dates a
 
 ### Test
 ```bash
-npm run e2e --prefix server   # 38 checks across the full lifecycle and all four roles (reseed afterwards)
+npm run seed --prefix server && npm run e2e --prefix server   # 48 checks: full lifecycle, all four roles, Import Studio (reseed afterwards)
 ```
 
 ## Demo script (about 6 minutes)
@@ -54,8 +55,9 @@ npm run e2e --prefix server   # 38 checks across the full lifecycle and all four
 3. **AI Assistant**: "Which applications are stuck past their SLA?" Expand the reasoning trace.
 4. **Institution** → Dashboard: score ring, deficiencies to answer, lease deed expiring in 21 days. **Renew** it by uploading a file. Answer the deficiencies, then submit for re-scrutiny.
 5. **Officer** → Documents: **Verify** the renewal; the toast reports the alerts that closed automatically. Open the application, clear re-scrutiny, then **Schedule EVC** and watch the conflict-of-interest blocking.
-6. **Expert** → My Visits: file the report and move the application to the Executive Committee.
-7. **Admin** → **Approve with undertakings**, open the **LoA**, scan its QR code, or open `/verify/<code>` in a private window.
+6. **Officer** → **Import Studio**: import the hand-kept WRO register sample. Show the header found on line 4, the votes, the 43 auto-fixes, the duplicate and the missing state, then import and watch new alerts appear.
+7. **Expert** → My Visits: file the report and move the application to the Executive Committee.
+8. **Admin** → **Approve with undertakings**, open the **LoA**, scan its QR code, or open `/verify/<code>` in a private window.
 
 ## Stack
 React 18 + Vite + Recharts (UI theme: warm claude.ai canvas with LinkedIn-style cards) · Express + Prisma + SQLite · Ollama (local LLM, optional).
@@ -68,8 +70,9 @@ server/
   modules/alerts/compiler.js English → rule (LLM with keyword fallback)
   modules/evc/              conflict-aware panel suggester and scheduling
   modules/ai/               tool-calling agent + offline router
+  modules/import/           Import Studio: reader, header finder, three-voter mapper, cleaners, samples
 client/src/pages/           Dashboard, Applications (list/board), ApplicationDetail, EVC, Compliance,
-                            Institutions, Alerts, Reports, Letter, Verify, AIChat
+                            Institutions, Alerts, Reports, ImportStudio, Letter, Verify, AIChat
 ```
 
-Built on top of two earlier projects by the team: **SiteLine** (asset workflows, AI agent, command palette) and **odoo_2026** (HR playbooks, natural-language rule compiler, mass actions).
+Built on top of two earlier projects by the team: **SiteLine** (asset workflows, AI agent, command palette) and **odoo_2026** (HR playbooks, natural-language rule compiler, AI import studio, mass actions).

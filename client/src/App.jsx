@@ -11,6 +11,7 @@ import Institutions from './pages/Institutions';
 import InstitutionDetail from './pages/InstitutionDetail';
 import Alerts from './pages/Alerts';
 import Reports from './pages/Reports';
+import ImportStudio from './pages/ImportStudio';
 import Letter from './pages/Letter';
 import Verify from './pages/Verify';
 import AIChat from './pages/AIChat';
@@ -41,6 +42,7 @@ export default function App() {
           <Route path="institutions/:id" element={<InstitutionDetail />} />
           <Route path="alerts" element={<Alerts />} />
           <Route path="reports" element={<Reports />} />
+          <Route path="import" element={<ImportStudio />} />
           <Route path="ai-chat" element={<AIChat />} />
           <Route path="activity-logs" element={<ActivityLogs />} />
           <Route path="settings" element={<Settings />} />

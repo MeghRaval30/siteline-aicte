@@ -1,5 +1,5 @@
 // End-to-end smoke test of the full approval lifecycle across all four roles.
-// Run against a live server:  node e2e.js   (reseed afterwards: npm run seed)
+// Run against a live server:  node e2e.js   (it changes data: reseed afterwards with npm run seed)
 const B = process.env.API || 'http://localhost:3000/api/v1';
 let failures = 0;
 const check = (cond, msg) => { console.log(`${cond ? '  ✓' : '  ✗'} ${msg}`); if (!cond) failures++; };
@@ -12,7 +12,7 @@ async function login(email) {
     const j = await res.json();
     return { status: res.status, ...j };
   };
-  return { user: r.data.user, get: u => call('GET', u), post: (u, b) => call('POST', u, b), patch: (u, b) => call('PATCH', u, b) };
+  return { user: r.data.user, token, get: u => call('GET', u), post: (u, b) => call('POST', u, b), patch: (u, b) => call('PATCH', u, b) };
 }
 
 (async () => {
@@ -20,6 +20,8 @@ async function login(email) {
   const off = await login('officer@aicte.gov.in');
   const admin = await login('admin@aicte.gov.in');
   const expert = await login('expert@aicte.gov.in');
+
+  await off.post('/alerts/run', {}); // a fresh seed has no alerts until the engine's first run
 
   console.log('Application lifecycle');
   const created = await inst.post('/applications', { type: 'New Course', courses: 'B.Tech Robotics' });
@@ -100,6 +102,32 @@ async function login(email) {
   check(r.success, `rule saved; first run raised ${r.data.run.results[0].created} alert(s)`);
   r = await off.post('/alerts/run', {});
   check(r.success, `manual run of ${r.data.results.length} rules`);
+
+  console.log('Import Studio');
+  const sample = async name => Buffer.from(await (await fetch(`${B}/import/samples/${name}`, { headers: { Authorization: `Bearer ${off.token}` } })).arrayBuffer()).toString('base64');
+  const runImport = async (target, name, extra = {}) => {
+    const a = (await off.post('/import/analyze', { target, file_name: name, file_data: await sample(name), use_ai: false })).data;
+    const mapping = Object.fromEntries(a.columns.filter(c => c.field).map(c => [c.index, c.field]));
+    const body = { target, file_name: name, headers: a.headers, rows: a.rows, mapping, ...extra };
+    return { a, p: (await off.post('/import/preview', body)).data, commit: () => off.post('/import/commit', body) };
+  };
+  let imp = await runImport('institutions', 'wro-institutions-register.xlsx');
+  check(imp.a.header_line === 4 && imp.a.dropped.some(d => d.reason === 'totals row'), 'messy register: header found on line 4, title and TOTAL rows set aside');
+  check(imp.a.columns.filter(c => c.field).length === 13, 'all 13 meaningful columns mapped without AI');
+  check(imp.p.summary.create === 8 && imp.p.summary.update === 2 && imp.p.summary.skip === 1 && imp.p.summary.error === 1, `preview: ${JSON.stringify(imp.p.summary)}`);
+  r = await imp.commit();
+  check(r.success && r.data.created === 8 && r.data.updated === 2 && r.data.documents > 0, `import committed (${r.data.documents} documents, ${r.data.alerts_raised} alerts raised)`);
+  imp = await runImport('institutions', 'wro-institutions-register.xlsx');
+  check(imp.p.summary.create === 0 && imp.p.summary.update === 10, 're-importing the same file updates instead of duplicating');
+  imp = await runImport('documents', 'legacy-portal-documents.csv');
+  check(imp.p.summary.error === 1 && imp.p.summary.create === 16, `legacy vocabulary mapped (LEASE_DEED, FIRE_NOC, BCC…), unknown ID rejected`);
+  r = await imp.commit();
+  check(r.success && r.data.documents > 0, `documents imported (${r.data.documents})`);
+  imp = await runImport('institutions', 'new-colleges-no-ids.xlsx', { defaults: { type: 'Engineering' }, options: { generate_ids: true } });
+  check(imp.a.missing_required.map(m => m.key).sort().join() === 'aicte_id,type', 'gaps detected: no ID column, no type column');
+  check(imp.p.summary.create === 4 && imp.p.rows.every(x => x.values.aicte_id?.startsWith('1-9')), 'gaps filled: provisional IDs + default type');
+  r = await inst.post('/import/analyze', { target: 'institutions', file_name: 'x.csv', file_data: 'YQ==' });
+  check(r.status === 403, 'institutions cannot use the Import Studio');
 
   console.log('Scoping');
   const instApps = (await inst.get('/applications')).data;
