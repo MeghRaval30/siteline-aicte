@@ -2,7 +2,9 @@
 
 SiteLine is one Node.js service that serves the REST API and the built web app, plus a database. The local AI model is optional.
 
-## Option A: Docker (recommended)
+## Option A: Docker
+
+> Status: the Dockerfile and compose file are written but have **not yet been built end to end**; Docker could not be started on the development machine. Run `docker build .` once and fix anything it reports before relying on it. Option B is verified (89 end-to-end checks pass on a fresh clone).
 
 ```bash
 docker compose up -d --build                 # app on http://localhost:3000, demo data loaded on first start
