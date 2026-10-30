@@ -1,0 +1,133 @@
+/* ============================================================
+   Government-portal theme modelled on the U.S. Web Design System
+   (USWDS, public domain): Public Sans + Merriweather, navy header,
+   blue primary actions, square corners, plain bordered cards.
+   Loaded after theme.css, so it overrides the "Ivory & Clay" look.
+   ============================================================ */
+@import url('https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=Merriweather:wght@700;900&display=swap');
+
+:root {
+  --sl-bg-primary: #f0f0f0;
+  --sl-bg-secondary: #ffffff;
+  --sl-bg-tertiary: #f9f9f9;
+  --sl-bg-hover: #e6e6e6;
+  --sl-bg-active: #dfe1e2;
+
+  --sl-border-subtle: #dfe1e2;
+  --sl-border-default: #a9aeb1;
+  --sl-border-strong: #565c65;
+  --sl-border-focus: #2491ff;
+
+  --sl-text-primary: #1b1b1b;
+  --sl-text-secondary: #3d4551;
+  --sl-text-muted: #71767a;
+
+  --sl-accent: #005ea2;
+  --sl-accent-hover: #1a4480;
+  --sl-accent-muted: #d9e8f6;
+  --sl-accent-subtle: #eff6fb;
+
+  --sl-success: #00a91c;
+  --sl-success-muted: #ecf3ec;
+  --sl-warning: #936f38;
+  --sl-warning-muted: #faf3d1;
+  --sl-danger: #b50909;
+  --sl-danger-muted: #f4e3db;
+  --sl-info: #005ea2;
+  --sl-info-muted: #e7f6f8;
+
+  --sl-font-sans: 'Public Sans', 'Source Sans Pro', 'Helvetica Neue', Helvetica, Roboto, Arial, sans-serif;
+  --sl-font-serif: 'Merriweather', Georgia, Cambria, 'Times New Roman', serif;
+
+  --sl-radius-lg: 4px;
+  --sl-shadow-md: 0 2px 6px rgba(0, 0, 0, 0.1);
+  --sl-shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.15);
+  --sl-shadow-xl: 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+
+body, button, input, select, textarea { font-family: var(--sl-font-sans); }
+body { background: var(--sl-bg-primary); color: var(--sl-text-primary); }
+a { color: #005ea2; text-decoration: underline; }
+::selection { background: #d9e8f6; }
+
+/* ---- Side navigation: navy header column ---- */
+.sl-sidebar { background: #162e51; border-right: none; color: #fff; }
+.sl-sidebar__logo { border-bottom: 1px solid rgba(255, 255, 255, 0.15); }
+.sl-sidebar__logo-icon { background: #fff; color: #162e51; border-radius: 4px; }
+.sl-sidebar__logo-text { font-family: var(--sl-font-serif); font-weight: 900; color: #fff; letter-spacing: 0; }
+.sl-sidebar__logo-badge { background: #e52207; color: #fff; border-radius: 2px; font-weight: 700; }
+.sl-sidebar__section-label { color: #a9aeb1; letter-spacing: .08em; font-weight: 700; }
+.sl-nav-item { color: #dfe1e2; border-radius: 0; border-left: 4px solid transparent; }
+.sl-nav-item:hover { background: #1a4480; color: #fff; }
+.sl-nav-item.active { background: #1a4480; color: #fff; font-weight: 700; border-left-color: #73b3e7; }
+.sl-nav-item.active .sl-nav-item__icon { color: #73b3e7; }
+.sl-sidebar__user, .sl-sidebar__user:hover { background: transparent; color: #fff; }
+.sl-sidebar .sl-ai-status--offline, .sl-sidebar .sl-ai-status--online { background: rgba(255, 255, 255, 0.12); color: #fff; }
+
+/* ---- Top bar ---- */
+.sl-topbar { background: #fff; border-bottom: 1px solid #dfe1e2; box-shadow: none; }
+.sl-topbar__search { background: #fff; border: 1px solid #565c65; border-radius: 0; color: #565c65; }
+.sl-topbar__search:hover { border-color: #005ea2; background: #fff; }
+.sl-topbar__search-shortcut { border-radius: 2px; }
+.sl-topbar__breadcrumb-current { font-weight: 700; color: #1b1b1b; }
+.sl-avatar { background: #005ea2; color: #fff; }
+
+/* ---- Typography ---- */
+.sl-page__title { font-family: var(--sl-font-serif); font-weight: 700; font-size: 1.75rem; letter-spacing: 0; color: #1b1b1b; }
+.sl-stat__value, .aq-automation__n { font-family: var(--sl-font-sans); font-weight: 700; letter-spacing: 0; }
+.sl-modal__title, .sl-login__title, .sl-chat__welcome-title { font-family: var(--sl-font-serif); font-weight: 700; }
+.sl-card__title { font-weight: 700; }
+
+/* ---- Cards: plain bordered boxes ---- */
+.sl-card, .sl-stat { background: #fff; border: 1px solid #dfe1e2; border-radius: 4px; box-shadow: none; }
+.sl-stat { border-top: 4px solid #005ea2; }
+.sl-card--interactive:hover, .sl-stat.sl-card--interactive:hover { border-color: #005ea2; box-shadow: var(--sl-shadow-md); transform: none; }
+.sl-card__header { background: #f0f0f0; border-bottom: 1px solid #dfe1e2; }
+
+/* ---- Buttons: USWDS square buttons ---- */
+.sl-btn { border-radius: 4px; font-weight: 700; }
+.sl-btn--primary { background: #005ea2; color: #fff; }
+.sl-btn--primary:hover:not(:disabled) { background: #1a4480; }
+.sl-btn--secondary { background: #fff; color: #005ea2; border: 2px solid #005ea2; }
+.sl-btn--secondary:hover:not(:disabled) { background: #fff; color: #1a4480; border-color: #1a4480; box-shadow: none; }
+.sl-btn--ghost { color: #005ea2; }
+.sl-btn--ghost:hover:not(:disabled) { background: #eff6fb; color: #1a4480; }
+.sl-btn--danger { background: #b50909; color: #fff; border: none; }
+.sl-btn--danger:hover:not(:disabled) { background: #8b0a03; }
+
+/* ---- Forms ---- */
+.sl-input, .sl-select, .sl-textarea { border: 1px solid #565c65; border-radius: 0; }
+.sl-input:focus, .sl-select:focus, .sl-textarea:focus { border-color: #565c65; outline: 4px solid #2491ff; outline-offset: 0; box-shadow: none; }
+input[type="checkbox"], input[type="range"] { accent-color: #005ea2; }
+
+/* ---- Tables, tabs, chips, badges ---- */
+.sl-table-container { border: 1px solid #dfe1e2; border-radius: 0; }
+.sl-table th { background: #dfe1e2; color: #1b1b1b; font-weight: 700; border-bottom: 1px solid #a9aeb1; }
+.sl-table tbody tr:nth-child(even) td { background: #f9f9f9; }
+.sl-table tbody tr:hover td, .aq-row-link:hover td { background: #eff6fb; }
+.sl-tab.active { color: #005ea2; border-bottom: 4px solid #005ea2; font-weight: 700; }
+.sl-filter-chip { border-radius: 2px; border-color: #565c65; color: #1b1b1b; }
+.sl-filter-chip.active { background: #005ea2; border-color: #005ea2; color: #fff; }
+.sl-badge { border-radius: 2px; font-weight: 700; }
+.sl-badge--accent { background: #d9e8f6; color: #1a4480; }
+
+/* ---- Overlays, login, chat ---- */
+.sl-modal, .sl-command, .sl-dropdown, .sl-notif-panel, .sl-toast { border-radius: 4px; border: 1px solid #a9aeb1; }
+.sl-login { background: #f0f0f0; }
+.sl-login__card { border-radius: 4px; border-top: 6px solid #162e51; }
+.sl-login__demo-cred:hover { border-color: #005ea2; background: #eff6fb; }
+.sl-chat__message--user .sl-chat__message-bubble { background: #d9e8f6; border-radius: 4px; }
+.sl-chat__message--ai .sl-chat__message-bubble { font-family: var(--sl-font-sans); }
+.sl-chat__message--ai .sl-chat__message-avatar, .sl-chat__send { background: #005ea2; }
+.sl-chat__input-wrapper { border-radius: 4px; border-color: #565c65; }
+
+/* ---- AICTE components ---- */
+.aq-panel, .aq-automation__item { background: #f9f9f9; border-color: #dfe1e2; border-radius: 4px; }
+.aq-automation__n { color: #005ea2; }
+.aq-kanban__col { background: #dfe1e2; border-radius: 0; }
+.aq-kcard { border-radius: 2px; }
+.aq-kcard:hover { border-color: #005ea2; }
+.aq-step--on { border-color: #005ea2; }
+.aq-step--on .aq-step__n { background: #005ea2; }
+.aq-expert--on { background: #eff6fb; }
+.aq-greeting-mark { color: #005ea2; }
