@@ -1,7 +1,11 @@
 // The AICTE approval pipeline as a state machine, modelled on the Approval
-// Process Handbook: scrutiny -> (deficiency -> re-scrutiny) -> EVC -> EC ->
-// decision, with SAC (appeal) and SHC (hearing) as side tracks.
+// Process Handbook 2024-27. Which forward stages an application passes through
+// depends on its category (Table-2.3; see shared/routes.js). Around that route:
+// deficiency ⇄ re-scrutiny, the SHC compliance hearing before the Executive
+// Committee (2.23.3), and one SAC appeal within 7 days of the decision (1.11(a), 2.24(a)).
 // Each stage has an SLA; time spent beyond it is "pendency".
+
+const { routeFor, nextStage } = require('./routes');
 
 const STAGES = {
   SUBMITTED:    { label: 'Submitted',              short: 'Submitted',  sla_days: 3,  owner: 'Officer',     order: 1, color: '#0a66c2' },
@@ -9,65 +13,71 @@ const STAGES = {
   DEFICIENCY:   { label: 'Deficiency Response',    short: 'Deficiency', sla_days: 15, owner: 'Institution', order: 3, color: '#a85d00' },
   RESCRUTINY:   { label: 'Re-Scrutiny',            short: 'Re-Scrut.',  sla_days: 10, owner: 'Officer',     order: 4, color: '#7c3aed' },
   EVC:          { label: 'Expert Visit Committee', short: 'EVC',        sla_days: 21, owner: 'Expert',      order: 5, color: '#b8327f' },
-  EC_REVIEW:    { label: 'Executive Committee',    short: 'EC',         sla_days: 10, owner: 'Admin',       order: 6, color: '#c96442' },
-  SAC:          { label: 'Standing Appellate Committee', short: 'SAC',  sla_days: 30, owner: 'Admin',       order: 7, color: '#c2410c' },
-  SHC:          { label: 'Standing Hearing Committee',   short: 'SHC',  sla_days: 30, owner: 'Admin',       order: 8, color: '#c4141b' },
+  SHC:          { label: 'Standing Hearing Committee', short: 'SHC',    sla_days: 15, owner: 'Admin',       order: 6, color: '#9f1239' },
+  EC_REVIEW:    { label: 'Executive Committee',    short: 'EC',         sla_days: 10, owner: 'Admin',       order: 7, color: '#c96442' },
+  SAC:          { label: 'Standing Appellate Committee', short: 'SAC',  sla_days: 30, owner: 'Admin',       order: 8, color: '#c2410c' },
   APPROVED:     { label: 'Approved (LoA)',         short: 'Approved',   sla_days: null, owner: null, order: 9,  color: '#057642', terminal: true },
   CONDITIONAL:  { label: 'Conditionally Approved', short: 'Conditional',sla_days: null, owner: null, order: 9,  color: '#0f766e', terminal: true },
   REJECTED:     { label: 'Rejected (LoR)',         short: 'Rejected',   sla_days: null, owner: null, order: 9,  color: '#c4141b', terminal: true },
   WITHDRAWN:    { label: 'Withdrawn',              short: 'Withdrawn',  sla_days: null, owner: null, order: 9,  color: '#6b6a65', terminal: true },
 };
 
-// The main line shown in the stage tracker
+// The main line shown in the stage tracker (the per-case tracker uses the case's own route)
 const MAIN_TRACK = ['SUBMITTED', 'SCRUTINY', 'EVC', 'EC_REVIEW', 'APPROVED'];
 
 const OFFICE = ['Admin', 'Officer'];
+const APPEAL_DAYS = 7; // APH 1.11(a), 2.24(a)
 
-// from -> allowed moves. `roles` gates who may press the button.
+const forwardLabel = to => ({ SCRUTINY: 'Start Scrutiny', EVC: 'Clear Scrutiny → EVC', SHC: 'Refer to SHC hearing', EC_REVIEW: 'Send to Executive Committee' }[to] || `Move to ${STAGES[to].label}`);
+
+// from -> allowed moves. `to: 'NEXT'` resolves to the next stage on the application's route.
+// `roles` gates who may press the button; `when` adds APH conditions; `clause` cites the rule.
 const TRANSITIONS = {
-  SUBMITTED:  [
-    { to: 'SCRUTINY',   label: 'Start Scrutiny',          roles: OFFICE },
-    { to: 'WITHDRAWN',  label: 'Withdraw',                roles: ['Institution', 'Admin'] },
+  SUBMITTED: [
+    { to: 'NEXT',       roles: OFFICE, clause: 'APH Table-2.3' },
+    { to: 'WITHDRAWN',  label: 'Withdraw', roles: ['Institution', 'Admin'] },
   ],
   SCRUTINY: [
-    { to: 'EVC',        label: 'Clear Scrutiny → EVC',     roles: OFFICE },
-    { to: 'DEFICIENCY', label: 'Raise Deficiency',         roles: OFFICE },
-    { to: 'EC_REVIEW',  label: 'Skip EVC → EC (EoA)',      roles: OFFICE, hint: 'Extension of Approval without site change', when: app => app.type === 'Extension of Approval' },
-    { to: 'REJECTED',   label: 'Reject at Scrutiny',       roles: ['Admin'] },
+    { to: 'NEXT',       roles: OFFICE, clause: 'APH 1.8, Table-2.3' },
+    { to: 'DEFICIENCY', label: 'Raise Deficiency', roles: OFFICE, clause: 'APH 1.8' },
+    { to: 'SHC',        label: 'Refer to SHC hearing', roles: OFFICE, clause: 'APH 2.23.3' },
+    { to: 'REJECTED',   label: 'Reject at Scrutiny', roles: ['Admin'] },
   ],
   DEFICIENCY: [
-    { to: 'RESCRUTINY', label: 'Submit Response for Re-Scrutiny', roles: ['Institution', ...OFFICE] },
-    { to: 'REJECTED',   label: 'Reject (No Response)',     roles: ['Admin'] },
+    { to: 'RESCRUTINY', label: 'Submit Response for Re-Scrutiny', roles: ['Institution', ...OFFICE], clause: 'APH 1.8' },
+    { to: 'REJECTED',   label: 'Reject (No Response)', roles: ['Admin'] },
   ],
   RESCRUTINY: [
-    { to: 'EVC',        label: 'Clear Re-Scrutiny → EVC',  roles: OFFICE },
-    { to: 'DEFICIENCY', label: 'Deficiency Persists',      roles: OFFICE },
-    { to: 'REJECTED',   label: 'Reject',                   roles: ['Admin'] },
+    { to: 'NEXT',       roles: OFFICE, clause: 'APH 1.8 (re-scrutiny checks only the flagged deficiencies)' },
+    { to: 'DEFICIENCY', label: 'Deficiency Persists', roles: OFFICE },
+    { to: 'SHC',        label: 'Refer to SHC hearing', roles: OFFICE, clause: 'APH 2.23.3' },
+    { to: 'REJECTED',   label: 'Reject', roles: ['Admin'] },
   ],
   EVC: [
-    { to: 'EC_REVIEW',  label: 'EVC Report Accepted → EC', roles: [...OFFICE, 'Expert'] },
-    { to: 'DEFICIENCY', label: 'EVC Found Deficiencies',   roles: [...OFFICE, 'Expert'] },
-  ],
-  EC_REVIEW: [
-    { to: 'APPROVED',   label: 'Grant LoA',                roles: ['Admin'] },
-    { to: 'CONDITIONAL',label: 'Approve with Undertakings',roles: ['Admin'] },
-    { to: 'REJECTED',   label: 'Issue LoR (Reject)',       roles: ['Admin'] },
-  ],
-  REJECTED: [
-    // One appeal, within 30 days of the LoR (as the letter itself says).
-    { to: 'SAC',        label: 'File Appeal to SAC',       roles: ['Institution', 'Admin'],
-      when: app => !(app.transitions || []).some(t => t.to_stage === 'SAC') && daysBetween(app.stage_entered_at) <= 30 },
-  ],
-  SAC: [
-    { to: 'EVC',        label: 'SAC: Order Re-Visit',      roles: ['Admin'] },
-    { to: 'SHC',        label: 'Refer to SHC Hearing',     roles: ['Admin'] },
-    { to: 'APPROVED',   label: 'SAC: Approve',             roles: ['Admin'] },
-    { to: 'CONDITIONAL',label: 'SAC: Approve with Undertakings', roles: ['Admin'] },
-    { to: 'REJECTED',   label: 'SAC: Uphold Rejection',    roles: ['Admin'] },
+    { to: 'NEXT',       roles: [...OFFICE, 'Expert'], clause: 'APH 1.9' },
+    { to: 'DEFICIENCY', label: 'EVC Found Deficiencies', roles: [...OFFICE, 'Expert'], clause: 'APH 1.9' },
+    { to: 'SHC',        label: 'Refer to SHC hearing', roles: OFFICE, clause: 'APH 2.23.3' },
   ],
   SHC: [
-    { to: 'CONDITIONAL',label: 'SHC: Allow with Undertakings', roles: ['Admin'] },
-    { to: 'REJECTED',   label: 'SHC: Reject',              roles: ['Admin'] },
+    { to: 'EC_REVIEW',  label: 'SHC recommendation → EC', roles: ['Admin'], clause: 'APH 2.23.3' },
+    { to: 'DEFICIENCY', label: 'SHC: compliance still short', roles: ['Admin'], clause: 'APH 2.23.3' },
+  ],
+  EC_REVIEW: [
+    { to: 'APPROVED',   label: 'Grant LoA', roles: ['Admin'] },
+    { to: 'CONDITIONAL',label: 'Approve with Undertakings', roles: ['Admin'] },
+    { to: 'REJECTED',   label: 'Issue LoR (Reject)', roles: ['Admin'] },
+  ],
+  REJECTED: [
+    // One appeal, within 7 days of the decision being uploaded.
+    { to: 'SAC',        label: 'File Appeal to SAC', roles: ['Institution', 'Admin'], clause: 'APH 1.11(a), 2.24(a)',
+      when: app => !(app.transitions || []).some(t => t.to_stage === 'SAC') && daysBetween(app.stage_entered_at) <= APPEAL_DAYS },
+  ],
+  SAC: [
+    { to: 'SCRUTINY',   label: 'SAC: Remand to Scrutiny', roles: ['Admin'], clause: 'APH 2.24' },
+    { to: 'EVC',        label: 'SAC: Remand to EVC', roles: ['Admin'], clause: 'APH 2.24', when: app => routeFor(app).stages.includes('EVC') },
+    { to: 'APPROVED',   label: 'SAC: Approve', roles: ['Admin'] },
+    { to: 'CONDITIONAL',label: 'SAC: Approve with Undertakings', roles: ['Admin'] },
+    { to: 'REJECTED',   label: 'SAC: Uphold Rejection', roles: ['Admin'] },
   ],
   APPROVED: [], CONDITIONAL: [], WITHDRAWN: [],
 };
@@ -96,9 +106,19 @@ function slaInfo(app, now = new Date()) {
   };
 }
 
+// Concrete moves for this application: 'NEXT' becomes the next stage on its route.
+function resolveMoves(app) {
+  const out = [];
+  for (const m of TRANSITIONS[app.stage] || []) {
+    if (m.to !== 'NEXT') { out.push(m); continue; }
+    const to = nextStage(app);
+    if (to) out.push({ ...m, to, label: forwardLabel(to), route: routeFor(app).code });
+  }
+  return out;
+}
+
 function allowedTransitions(app, user) {
-  const moves = TRANSITIONS[app.stage] || [];
-  return moves.filter(m => m.roles.includes(user.role) && (!m.when || m.when(app)));
+  return resolveMoves(app).filter(m => m.roles.includes(user.role) && (!m.when || m.when(app)));
 }
 
 function isTerminal(stage) {
@@ -117,4 +137,4 @@ async function loadSlaOverrides(prisma) {
   return rows;
 }
 
-module.exports = { STAGES, TRANSITIONS, MAIN_TRACK, STATUS_FOR_STAGE, ACTIVE_STAGES, DEFAULT_SLA, loadSlaOverrides, slaInfo, allowedTransitions, isTerminal, daysBetween, DAY };
+module.exports = { STAGES, TRANSITIONS, APPEAL_DAYS, resolveMoves, MAIN_TRACK, STATUS_FOR_STAGE, ACTIVE_STAGES, DEFAULT_SLA, loadSlaOverrides, slaInfo, allowedTransitions, isTerminal, daysBetween, DAY };

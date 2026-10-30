@@ -1,5 +1,8 @@
 const prisma = require('./prismaClient');
+const audit = require('./audit');
 
+// Every action goes to the readable activity log and to the hash-chained audit trail.
+// A failure to write the audit chain is surfaced in the server log as an integrity problem.
 async function logActivity({ actorUserId, action, entityType, entityId, metadata }) {
   try {
     await prisma.activityLog.create({
@@ -13,7 +16,11 @@ async function logActivity({ actorUserId, action, entityType, entityId, metadata
     });
   } catch (error) {
     console.error('Failed to log activity:', error);
-    // We don't throw here to avoid failing the primary transaction
+  }
+  try {
+    await audit.record(prisma, { actorId: actorUserId, action, entityType, entityId, metadata });
+  } catch (error) {
+    console.error('[AUDIT] could not append to the audit chain:', error);
   }
 }
 

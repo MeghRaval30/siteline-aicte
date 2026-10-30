@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Activity, RefreshCw, Download, Search } from 'lucide-react';
+import { Activity, RefreshCw, Download, Search, ShieldCheck } from 'lucide-react';
 import { apiClient } from '../api/client';
 import { downloadCsv, toast, Loading } from '../components/ui';
 
@@ -24,6 +24,14 @@ export default function ActivityLogs() {
   useEffect(() => { fetchLogs(); }, [page, filters]);
 
   const setF = (k, v) => { setPage(1); setFilters(f => ({ ...f, [k]: v })); };
+  const [integrity, setIntegrity] = useState(null);
+  const verifyChain = async () => {
+    try {
+      const r = await apiClient.get('/audit/verify');
+      setIntegrity(r);
+      toast(r.ok ? `Audit chain intact: ${r.count} events verified` : `Audit chain broken at event ${r.broken_at}: ${r.reason}`, r.ok ? 'success' : 'error');
+    } catch (e) { toast(e.message, 'error'); }
+  };
   const exportCsv = async () => {
     const q = query({ page: 1, limit: 2000 });
     const rows = await apiClient.get(`/activity-logs?${q}`).catch(e => { toast(e.message, 'error'); return []; });
@@ -36,10 +44,19 @@ export default function ActivityLogs() {
       <div className="sl-page__header">
         <div><h1 className="sl-page__title">Audit Trail</h1><p className="sl-page__subtitle">Every action, by whom and when{JSON.parse(localStorage.getItem('user') || '{}').role === 'Officer' ? ' (your Regional Office)' : ''}</p></div>
         <div className="sl-page__actions">
+          <button className="sl-btn sl-btn--secondary" onClick={verifyChain} title="Recompute the hash chain of the audit trail and compare it with the daily anchors"><ShieldCheck size={16} /> Verify integrity</button>
           <button className="sl-btn sl-btn--secondary" onClick={exportCsv}><Download size={16} /> CSV</button>
           <button className="sl-btn sl-btn--secondary" onClick={fetchLogs} id="refresh-logs"><RefreshCw size={16} /> Refresh</button>
         </div>
       </div>
+
+      {integrity && (
+        <div className="aq-panel sl-mb-4 sl-text-sm" style={{ borderColor: integrity.ok ? 'var(--sl-success)' : 'var(--sl-danger)' }}>
+          <ShieldCheck size={14} style={{ verticalAlign: -2 }} /> {integrity.ok
+            ? <>Tamper-evident chain intact: <b>{integrity.count}</b> events, {integrity.anchors} daily anchor(s). Head <span className="sl-font-mono sl-text-xs">{integrity.head?.slice(0, 16)}…</span></>
+            : <>Chain broken at event <b>{integrity.broken_at}</b>: {integrity.reason}</>}
+        </div>
+      )}
 
       <div className="sl-flex sl-gap-3 sl-mb-4 sl-flex-wrap sl-items-center">
         <form onSubmit={e => { e.preventDefault(); setF('search', search.trim()); }} style={{ position: 'relative', minWidth: 260 }}>

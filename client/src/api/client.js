@@ -39,3 +39,15 @@ export const apiClient = {
   patch: (url, body) => fetchWithAuth(url, { method: 'PATCH', body: JSON.stringify(body) }),
   delete: (url) => fetchWithAuth(url, { method: 'DELETE' }),
 };
+
+// Documents are served only to signed-in users, so fetch them with the session and save locally.
+export async function downloadFile(url, name) {
+  const token = localStorage.getItem('token');
+  const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) throw new Error(res.status === 404 ? 'File not found or not yours to view' : 'Could not download the file');
+  const blob = await res.blob();
+  const href = URL.createObjectURL(blob);
+  const a = Object.assign(document.createElement('a'), { href, download: name || 'document' });
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(href), 10000);
+}

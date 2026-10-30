@@ -18,6 +18,7 @@ import AIChat from './pages/AIChat';
 import ActivityLogs from './pages/ActivityLogs';
 import Outbox from './pages/Outbox';
 import Settings from './pages/Settings';
+import Escalations from './pages/Escalations';
 
 function PrivateRoute({ children }) {
   const token = localStorage.getItem('token');
@@ -48,6 +49,7 @@ export default function App() {
           <Route path="compliance" element={<Only roles={[...OFFICE, 'Institution']}><Compliance /></Only>} />
           <Route path="institutions" element={<Only roles={OFFICE}><Institutions /></Only>} />
           <Route path="institutions/:id" element={<Only roles={OFFICE}><InstitutionDetail /></Only>} />
+          <Route path="escalations" element={<Only roles={OFFICE}><Escalations /></Only>} />
           <Route path="alerts" element={<Only roles={[...OFFICE, 'Institution']}><Alerts /></Only>} />
           <Route path="reports" element={<Only roles={OFFICE}><Reports /></Only>} />
           <Route path="import" element={<Only roles={OFFICE}><ImportStudio /></Only>} />

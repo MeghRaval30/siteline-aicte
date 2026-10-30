@@ -101,7 +101,7 @@ router.get('/overview', h(async (req, res) => {
     prisma.outbox.count({ where: scopedUsers ? { user_id: { in: scopedUsers } } : {} }),
     prisma.alertRule.count({ where: { active: true } }),
   ]);
-  const automation = { alerts_raised: alertsRaised, auto_resolved: autoResolved, emails_sent: emails, sla_breaches_flagged: kpis.sla_breached, documents_watched: docs.length, rules_active: rulesActive };
+  const automation = { alerts_raised: alertsRaised, auto_resolved: autoResolved, emails_sent: emails, email_mode: process.env.SMTP_URL ? 'smtp' : 'simulated', sla_breaches_flagged: kpis.sla_breached, documents_watched: docs.length, rules_active: rulesActive };
 
   let compliance = null;
   if (user.role !== 'Expert') {

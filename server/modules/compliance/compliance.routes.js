@@ -1,6 +1,5 @@
 const express = require('express');
-const fs = require('fs');
-const path = require('path');
+const { saveUpload, UploadError } = require('../../shared/files');
 const prisma = require('../../shared/prismaClient');
 const authenticate = require('../../shared/authenticate');
 const requireRole = require('../../shared/requireRole');
@@ -16,8 +15,12 @@ const { DOC_TYPES } = require('../alerts/compiler');
 const router = express.Router();
 router.use(authenticate);
 
-const UPLOAD_DIR = path.join(__dirname, '../../uploads');
-fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+// Documents that never lapse; every other prescribed document must carry a validity date.
+const PERMANENT_TYPES = ['Building Completion Certificate', 'Society/Trust Registration', 'Land Use Conversion'];
+
+function saveOr400(res, file_name, file_data) {
+  try { return saveUpload(file_name, file_data); } catch (e) { if (e instanceof UploadError) { fail(res, 400, e.message); return null; } throw e; }
+}
 
 function statusFor(validTo, now = new Date()) {
   if (!validTo) return 'Valid';
@@ -56,18 +59,15 @@ router.post('/documents', h(async (req, res) => {
   if (valid_to && isNaN(new Date(valid_to))) return fail(res, 400, 'Valid-to is not a date');
   if (valid_from && valid_to && new Date(valid_to) < new Date(valid_from)) return fail(res, 400, 'Valid-to cannot be before valid-from');
   if (valid_to && new Date(valid_to) < new Date()) return fail(res, 400, 'This document has already expired; upload the renewed document instead');
-  let file_url = null;
-  if (file_data && file_name) {
-    // Unguessable name: the file is served without a session, so the URL is the capability.
-    const ext = (String(file_name).match(/\.[a-zA-Z0-9]{1,5}$/) || [''])[0];
-    const safe = `${crypto.randomUUID()}${ext}`;
-    const b64 = String(file_data).replace(/^data:[^;]+;base64,/, '');
-    fs.writeFileSync(path.join(UPLOAD_DIR, safe), Buffer.from(b64, 'base64'));
-    file_url = `/uploads/${safe}`;
-  }
+  if (!valid_to && !PERMANENT_TYPES.includes(doc_type)) return fail(res, 400, `${doc_type} must have a valid-to date so its expiry can be monitored`);
+  let saved = null;
+  if (file_data && file_name) { saved = saveOr400(res, file_name, file_data); if (!saved) return; }
   if (renewal_of_id) {
     const prev = await prisma.complianceDocument.findUnique({ where: { id: Number(renewal_of_id) } });
     if (!prev || prev.institution_id !== institution_id) return fail(res, 400, 'Invalid document to renew');
+    if (prev.doc_type !== doc_type) return fail(res, 400, 'A renewal must be the same type of document');
+    if (prev.valid_to && valid_to && new Date(valid_to) <= prev.valid_to) return fail(res, 400, 'The renewed document must be valid beyond the current one');
+    if (!saved) return fail(res, 400, 'Attach the renewed document');
     const pending = await prisma.complianceDocument.findFirst({ where: { renewal_of_id: prev.id, status: 'Pending Verification' } });
     if (pending) return fail(res, 409, 'A renewal of this document is already awaiting verification');
   }
@@ -75,7 +75,7 @@ router.post('/documents', h(async (req, res) => {
     data: {
       institution_id, doc_type, doc_number: doc_number || null, issued_by: issued_by || null,
       valid_from: valid_from ? new Date(valid_from) : null, valid_to: valid_to ? new Date(valid_to) : null,
-      status: 'Pending Verification', file_name: file_name || null, file_url, remarks: remarks || null,
+      status: 'Pending Verification', file_name: saved?.file_name || null, file_url: saved?.file_url || null, file_sha256: saved?.sha256 || null, remarks: remarks || null,
       renewal_of_id: renewal_of_id ? Number(renewal_of_id) : null,
     },
     include: { institution: true },
@@ -92,8 +92,11 @@ router.patch('/documents/:id/verify', requireRole(['Admin', 'Officer']), h(async
   if (!doc) return fail(res, 404, 'Not found');
   if (!(await canTouchInstitution(req.user, doc.institution_id))) return fail(res, 403, 'That institution is outside your jurisdiction');
   if (!['Valid', 'Rejected'].includes(decision)) return fail(res, 400, 'Decision must be Valid or Rejected');
+  if (decision === 'Rejected' && !remarks) return fail(res, 400, 'Say why the document is rejected');
+  // Without a file on record, verification must say what original was checked.
+  if (decision === 'Valid' && !doc.file_url && !remarks) return fail(res, 400, 'No file is attached: record what original document you checked');
   const status = decision === 'Rejected' ? 'Rejected' : statusFor(doc.valid_to);
-  const upd = await prisma.complianceDocument.update({ where: { id: doc.id }, data: { status, verified_by: req.user.name, remarks: remarks || doc.remarks } });
+  const upd = await prisma.complianceDocument.update({ where: { id: doc.id }, data: { status, verified_by: req.user.name, unverified_import: false, remarks: remarks || doc.remarks } });
   if (decision === 'Valid' && doc.renewal_of_id) {
     await prisma.complianceDocument.update({ where: { id: doc.renewal_of_id }, data: { status: 'Superseded' } });
   }
@@ -120,7 +123,11 @@ router.post('/undertakings', requireRole(['Admin', 'Officer']), h(async (req, re
   const { institution_id, application_id, title, description, category, due_date } = req.body;
   if (!institution_id || !title || !due_date) return fail(res, 400, 'institution_id, title and due_date are required');
   if (!(await canTouchInstitution(req.user, institution_id))) return fail(res, 403, 'That institution is outside your jurisdiction');
+  if (isNaN(new Date(due_date)) || new Date(due_date) < new Date()) return fail(res, 400, 'Due date must be a future date');
   const u = await prisma.undertaking.create({ data: { institution_id: Number(institution_id), application_id: application_id ? Number(application_id) : null, title, description, category: category || 'Lease Renewal', due_date: new Date(due_date) } });
+  const users = await prisma.user.findMany({ where: { institution_id: u.institution_id, role: 'Institution' } });
+  for (const usr of users) await notify({ userId: usr.id, type: 'UNDERTAKING', message: `New undertaking due ${new Date(u.due_date).toLocaleDateString('en-IN')}: ${u.title}`, relatedEntityType: 'Undertaking', relatedEntityId: u.id });
+  await logActivity({ actorUserId: req.user.id, action: `Created undertaking "${title}"`, entityType: 'Undertaking', entityId: u.id });
   ok(res, u);
 }));
 
@@ -129,7 +136,10 @@ router.patch('/undertakings/:id/submit', h(async (req, res) => {
   if (!u) return fail(res, 404, 'Not found');
   if (req.user.role === 'Expert' || !(await canTouchInstitution(req.user, u.institution_id))) return fail(res, 403, 'Forbidden');
   if (!req.body.submission_note) return fail(res, 400, 'Describe the compliance evidence');
-  const upd = await prisma.undertaking.update({ where: { id: u.id }, data: { status: 'Submitted', submission_note: req.body.submission_note, submitted_at: new Date() } });
+  let saved = null;
+  if (req.body.file_data && req.body.file_name) { saved = saveOr400(res, req.body.file_name, req.body.file_data); if (!saved) return; }
+  const upd = await prisma.undertaking.update({ where: { id: u.id }, data: { status: 'Submitted', submission_note: req.body.submission_note, submitted_at: new Date(),
+    ...(saved ? { evidence_file_name: saved.file_name, evidence_file_url: saved.file_url, evidence_sha256: saved.sha256 } : {}) } });
   const officers = await prisma.user.findMany({ where: { role: 'Officer', OR: [{ region_id: u.institution.region_id }, { region_id: null }] } });
   for (const o of officers) await notify({ userId: o.id, type: 'UNDERTAKING', message: `${u.institution.name} submitted compliance for "${u.title}"`, relatedEntityType: 'Undertaking', relatedEntityId: u.id });
   await logActivity({ actorUserId: req.user.id, action: `Submitted compliance for undertaking "${u.title}"`, entityType: 'Undertaking', entityId: u.id });
@@ -143,6 +153,7 @@ router.patch('/undertakings/:id/review', requireRole(['Admin', 'Officer']), h(as
   const u = await prisma.undertaking.findUnique({ where: { id: Number(req.params.id) }, include: { institution: true } });
   if (!u) return fail(res, 404, 'Not found');
   if (!(await canTouchInstitution(req.user, u.institution_id))) return fail(res, 403, 'That institution is outside your jurisdiction');
+  if (['Breached', 'Waived'].includes(decision) && !note) return fail(res, 400, `Record the reason for marking this ${decision.toLowerCase()}`);
   const status = decision === 'Pending' ? (new Date(u.due_date) < new Date() ? 'Overdue' : 'Pending') : decision;
   const upd = await prisma.undertaking.update({ where: { id: u.id }, data: { status, verifier_note: note || null, verified_at: decision === 'Verified' ? new Date() : null } });
   if (decision === 'Breached') await prisma.institution.update({ where: { id: u.institution_id }, data: { status: 'Under Show-Cause' } });

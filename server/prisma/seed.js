@@ -8,6 +8,8 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { STAGES, DAY } = require('../shared/workflow');
 const { template } = require('../shared/checklist');
+const { CATEGORY_ROUTE } = require('../shared/routes');
+const { seedLadders } = require('../shared/escalation');
 
 const prisma = new PrismaClient();
 
@@ -83,12 +85,12 @@ const PATHS = {
   EVC2: ['SUBMITTED', 'SCRUTINY', 'DEFICIENCY', 'RESCRUTINY', 'EVC'],
   EC_REVIEW: ['SUBMITTED', 'SCRUTINY', 'EVC', 'EC_REVIEW'],
   APPROVED: ['SUBMITTED', 'SCRUTINY', 'EVC', 'EC_REVIEW', 'APPROVED'],
-  APPROVED_EOA: ['SUBMITTED', 'SCRUTINY', 'EC_REVIEW', 'APPROVED'],
+  APPROVED_EOA: ['SUBMITTED', 'EC_REVIEW', 'APPROVED'],
   CONDITIONAL: ['SUBMITTED', 'SCRUTINY', 'DEFICIENCY', 'RESCRUTINY', 'EVC', 'EC_REVIEW', 'CONDITIONAL'],
   CONDITIONAL2: ['SUBMITTED', 'SCRUTINY', 'EVC', 'EC_REVIEW', 'CONDITIONAL'],
   REJECTED: ['SUBMITTED', 'SCRUTINY', 'DEFICIENCY', 'RESCRUTINY', 'EVC', 'EC_REVIEW', 'REJECTED'],
   SAC: ['SUBMITTED', 'SCRUTINY', 'EVC', 'EC_REVIEW', 'REJECTED', 'SAC'],
-  SHC: ['SUBMITTED', 'SCRUTINY', 'EVC', 'EC_REVIEW', 'REJECTED', 'SAC', 'SHC'],
+  SHC: ['SUBMITTED', 'SCRUTINY', 'EVC', 'SHC'],
   WITHDRAWN: ['SUBMITTED', 'SCRUTINY', 'WITHDRAWN'],
 };
 const PLAN = [['SUBMITTED', 6], ['SCRUTINY', 14], ['DEFICIENCY', 9], ['RESCRUTINY', 5], ['EVC', 8], ['EVC2', 4], ['EC_REVIEW', 7], ['SAC', 3], ['SHC', 2],
@@ -96,7 +98,12 @@ const PLAN = [['SUBMITTED', 6], ['SCRUTINY', 14], ['DEFICIENCY', 9], ['RESCRUTIN
 
 async function main() {
   console.log('Clearing database...');
-  for (const m of ['outbox', 'stageSla', 'alert', 'alertRule', 'notification', 'activityLog', 'conversationSession', 'checklistItem', 'eVCMember', 'eVCVisit', 'deficiency', 'undertaking', 'complianceDocument', 'stageTransition', 'application', 'user', 'institution', 'region']) {
+  // The audit chain is append-only; a full demo reset drops the guard triggers first.
+  await prisma.$executeRawUnsafe('DROP TRIGGER IF EXISTS audit_no_update');
+  await prisma.$executeRawUnsafe('DROP TRIGGER IF EXISTS audit_no_delete');
+  await prisma.$executeRawUnsafe('DROP TRIGGER IF EXISTS anchor_no_update');
+  await prisma.$executeRawUnsafe('DROP TRIGGER IF EXISTS anchor_no_delete');
+  for (const m of ['auditEvent', 'auditAnchor', 'escalation', 'escalationPolicy', 'reminderLog', 'reminderPlan', 'routeTemplate', 'outbox', 'stageSla', 'alert', 'alertRule', 'notification', 'activityLog', 'conversationSession', 'checklistItem', 'eVCMember', 'eVCVisit', 'deficiency', 'undertaking', 'complianceDocument', 'stageTransition', 'application', 'user', 'institution', 'region']) {
     await prisma[m].deleteMany();
   }
 
@@ -212,12 +219,14 @@ async function main() {
       t = enteredPrev;
     }
     const submitted = t;
-    const type = opts.type || (kind === 'APPROVED_EOA' ? 'Extension of Approval' : pick(['Extension of Approval', 'Extension of Approval', 'Increase in Intake', 'New Course', 'New Institution', 'Change of Name', 'Change of Site']));
+    // The category must match the stages the case went through (APH Table-2.3).
+    const type = opts.type || (path.includes('EVC') ? pick(['Increase in Intake', 'New Course', 'New Course', 'New Institution', 'Change of Site'])
+      : path.includes('SCRUTINY') ? pick(['Change of Name', 'Closure', 'Intake Reduction']) : pick(['Extension of Approval', 'NRI Seats']));
     seq++;
     const region = REGIONS.find(r => regions[r.code].id === inst.region_id).code;
     const app = await prisma.application.create({ data: {
       app_number: `APH/${submitted.getFullYear()}/${region}/${String(seq).padStart(5, '0')}`,
-      institution_id: inst.id, type, academic_year: '2027-28', stage: final,
+      institution_id: inst.id, type, academic_year: '2027-28', stage: final, route_code: CATEGORY_ROUTE[type] || 'SCRUTINY_EVC', route_version: 1,
       status: { APPROVED: 'Approved', CONDITIONAL: 'Conditionally Approved', REJECTED: 'Rejected', WITHDRAWN: 'Withdrawn' }[final] || 'In Process',
       stage_entered_at: daysAgo(curDays), submitted_at: submitted, created_at: submitted,
       decided_at: ['APPROVED', 'CONDITIONAL', 'REJECTED'].includes(final) ? daysAgo(curDays) : (path.includes('REJECTED') ? hops.find(h => h.to === 'REJECTED').at : null),
@@ -354,6 +363,10 @@ async function main() {
     await prisma.alertRule.create({ data: { name, trigger, params: JSON.stringify(params), criteria: JSON.stringify(criteria), severity, notify_roles: trigger === 'EVC_UPCOMING' ? 'Officer' : 'Admin,Officer' } });
   }
 
+  await seedLadders(prisma);
+  const { record, ensureGuards } = require('../shared/audit');
+  await ensureGuards(prisma);
+  await record(prisma, { actorId: admin.id, action: 'Seeded AICTE approval cycle 2027-28 demo data', entityType: 'System' });
   await prisma.activityLog.create({ data: { actor_user_id: admin.id, action: 'Seeded AICTE approval cycle 2027-28 demo data' } });
 
   // Run the monitoring rules once so the Alert Center is populated straight away.

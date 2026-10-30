@@ -28,6 +28,12 @@ const BY_TYPE = {
   'Change of Name':        ['affidavit', 'society_reg', 'resolution'],
   'Change of Site':        ['affidavit', 'land_docs', 'building_plan', 'bcc', 'fire_noc', 'ssc'],
   'Closure':               ['affidavit', 'resolution', 'closure_plan', 'state_noc'],
+  'NRI Seats':             ['affidavit', 'resolution'],
+  'Merger of Institutions':['affidavit', 'society_reg', 'resolution', 'land_docs', 'bcc', 'faculty_list'],
+  'Conversion Diploma/Degree': ['affidavit', 'state_noc', 'affiliation', 'faculty_list', 'lab_library'],
+  'Restoration after Break':   ['affidavit', 'land_docs', 'bcc', 'fire_noc', 'faculty_list', 'lab_library'],
+  'Intake Reduction':      ['affidavit', 'resolution'],
+  'FN/OCI Seats':          ['affidavit', 'resolution'],
 };
 
 function template(type) {

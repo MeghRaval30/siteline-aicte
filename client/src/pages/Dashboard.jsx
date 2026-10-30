@@ -60,7 +60,7 @@ export default function Dashboard() {
               [d.automation.alerts_raised, 'alerts raised automatically'],
               [d.automation.auto_resolved, 'alerts that closed themselves'],
               [d.automation.sla_breaches_flagged, 'SLA breaches flagged'],
-              [d.automation.emails_sent, 'emails sent to institutions & experts'],
+              [d.automation.emails_sent, d.automation.email_mode === 'smtp' ? 'emails sent to institutions & experts' : 'emails queued for institutions & experts (simulated: no mail server)'],
               [d.automation.documents_watched, 'documents watched for expiry'],
               [d.automation.rules_active, 'monitoring rules running'],
             ].map(([n, l]) => <div key={l} className="aq-automation__item"><div className="aq-automation__n">{n}</div><div className="sl-text-xs sl-text-muted">{l}</div></div>)}

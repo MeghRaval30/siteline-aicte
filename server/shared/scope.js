@@ -36,9 +36,11 @@ const ok = (res, data, extra = {}) => res.json({ success: true, data, ...extra }
 const fail = (res, status, message) => res.status(status).json({ success: false, error: message });
 
 // Wrap async handlers so a thrown error becomes a JSON 500 instead of a hung request.
+// Known client errors (err.status 4xx) keep their message; anything else is logged, not echoed.
 const h = fn => (req, res) => Promise.resolve(fn(req, res)).catch(err => {
-  console.error(err);
-  fail(res, 500, err.message || 'Internal error');
+  if (err.status && err.status < 500) return fail(res, err.status, err.message);
+  console.error(`[${req.id || '-'}]`, err);
+  fail(res, 500, `Something went wrong (ref ${req.id || 'n/a'})`);
 });
 
 module.exports = { appScope, instScope, isOffice, canTouchInstitution, ok, fail, h };

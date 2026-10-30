@@ -93,6 +93,8 @@ model Application {
   letter_revoked_at   DateTime?
   letter_revoke_reason String?
   rescrutiny_count    Int       @default(0)
+  route_code          String? // APH processing route pinned at submission (shared/routes.js)
+  route_version       Int?
   created_at          DateTime  @default(now())
   updated_at          DateTime  @updatedAt
 
@@ -116,6 +118,7 @@ model ChecklistItem {
   status         String    @default("Pending") // Pending, Uploaded, Verified, Deficient
   file_name      String?
   file_url       String?
+  file_sha256    String?
   remarks        String?
   uploaded_at    DateTime?
   verified_by    String?
@@ -220,6 +223,9 @@ model Undertaking {
   due_date        DateTime
   status          String    @default("Pending") // Pending, Submitted, Verified, Overdue, Breached, Waived
   submission_note String?
+  evidence_file_name String?
+  evidence_file_url  String?
+  evidence_sha256    String?
   submitted_at    DateTime?
   verified_at     DateTime?
   verifier_note   String?
@@ -242,6 +248,8 @@ model ComplianceDocument {
   status            String    @default("Pending Verification") // Pending Verification, Valid, Expiring Soon, Expired, Rejected, Superseded
   file_name         String?
   file_url          String?
+  file_sha256       String?
+  unverified_import Boolean   @default(false) // bulk-imported; an officer must check the original
   verified_by       String?
   remarks           String?
   renewal_of_id     Int?
@@ -264,6 +272,7 @@ model AlertRule {
   active      Boolean   @default(true)
   nl_prompt   String?
   last_run    DateTime?
+  retired_at  DateTime? // rules are retired, never deleted, so their alert history stays
   created_at  DateTime  @default(now())
 
   alerts Alert[]
@@ -283,6 +292,7 @@ model Alert {
   acknowledged_by String?
   acknowledged_at DateTime?
   resolved_at     DateTime?
+  resolution_note String?
 
   rule        AlertRule?   @relation(fields: [rule_id], references: [id])
   institution Institution? @relation(fields: [institution_id], references: [id])
@@ -323,4 +333,99 @@ model ConversationSession {
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
   user       User     @relation(fields: [user_id], references: [id])
+}
+
+// APH processing route per application category (defaults in shared/routes.js); editable by the Bureau.
+model RouteTemplate {
+  code       String   @id
+  name       String
+  stages     String // JSON array of forward stages
+  clause     String?
+  version    Int      @default(1)
+  updated_by String?
+  updated_at DateTime @updatedAt
+}
+
+// Escalation ladder: when an overdue item reaches `after_days`, it is escalated to the next authority.
+model EscalationPolicy {
+  id           Int     @id @default(autoincrement())
+  track        String // PENDENCY, EVC_REPORT, UNDERTAKING, DOCUMENT
+  level        Int
+  after_days   Int // days overdue before this level is raised
+  target_role  String // Officer, Admin
+  target_label String // designation shown to people, e.g. "Regional Officer", "Bureau Head"
+  scope        String  @default("region") // region | national
+  ack_hours    Int     @default(48) // unacknowledged for this long → raise the next level early
+  active       Boolean @default(true)
+
+  @@unique([track, level])
+}
+
+model Escalation {
+  id               Int       @id @default(autoincrement())
+  track            String
+  level            Int
+  entity_type      String
+  entity_id        Int
+  institution_id   Int?
+  region_id        Int?
+  title            String
+  detail           String?
+  target_role      String
+  target_label     String
+  days_overdue     Int
+  raised_at        DateTime  @default(now())
+  ack_at           DateTime?
+  ack_by           String?
+  ack_note         String?
+  promised_date    DateTime?
+  closed_at        DateTime?
+  close_reason     String?
+
+  @@unique([track, entity_type, entity_id, level])
+}
+
+// Reminder cadence: reminders at T-minus offsets before a due date, then every N days while overdue.
+model ReminderPlan {
+  id            Int     @id @default(autoincrement())
+  track         String  @unique // DOC_EXPIRY, UNDERTAKING_DUE, EVC_REPORT, DEFICIENCY_DUE
+  name          String
+  offsets       String  @default("[30,15,7,3,1,0]") // JSON: days before the due date
+  overdue_every Int     @default(3)
+  overdue_max   Int     @default(5)
+  active        Boolean @default(true)
+}
+
+model ReminderLog {
+  id          Int      @id @default(autoincrement())
+  plan_id     Int
+  entity_type String
+  entity_id   Int
+  mark        String // "T-7" before the due date, "OD-2" for the 2nd overdue reminder
+  recipients  Int      @default(0)
+  sent_at     DateTime @default(now())
+
+  @@unique([plan_id, entity_type, entity_id, mark])
+}
+
+// Tamper-evident audit trail: every row carries the hash of the previous one.
+// UPDATE and DELETE are blocked by database triggers (shared/audit.js).
+model AuditEvent {
+  id          Int      @id @default(autoincrement())
+  at          DateTime @default(now())
+  actor_id    Int?
+  action      String
+  entity_type String?
+  entity_id   Int?
+  metadata    String?
+  prev_hash   String
+  hash        String   @unique
+}
+
+// Daily published head of the audit chain; a rewrite of history no longer matches an anchor.
+model AuditAnchor {
+  id     Int      @id @default(autoincrement())
+  at     DateTime @default(now())
+  count  Int
+  head   String
 }

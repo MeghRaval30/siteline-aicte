@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const prisma = require('./prismaClient');
+const { jwtSecret } = require('./config');
 
 const authenticate = async (req, res, next) => {
   try {
@@ -9,7 +10,7 @@ const authenticate = async (req, res, next) => {
     }
 
     const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret_if_not_set');
+    const decoded = jwt.verify(token, jwtSecret(), { algorithms: ['HS256'] });
     
     // Verify user is not inactive
     const user = await prisma.user.findUnique({
