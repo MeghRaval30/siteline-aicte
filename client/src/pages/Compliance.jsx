@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ShieldCheck, Upload, FileCheck2, FileX, FileWarning, ClipboardCheck, Check, X, Download, Search } from 'lucide-react';
-import { apiClient } from '../api/client';
+import { apiClient, downloadFile } from '../api/client';
 import { StatusBadge, Loading, Empty, Stat, toast, getUser, isOffice, fmtDate, daysUntil, downloadCsv } from '../components/ui';
 import { UploadDocModal, SubmitUndertakingModal, ReviewUndertakingModal } from '../components/ComplianceModals';
 
@@ -50,7 +50,12 @@ function Documents({ user, params, setParams }) {
 
   const verify = async (d, decision) => {
     try {
-      const r = await apiClient.patch(`/compliance/documents/${d.id}/verify`, { decision });
+      let remarks;
+      if (decision === 'Rejected' || !d.file_url) {
+        remarks = window.prompt(decision === 'Rejected' ? `Why is this ${d.doc_type} rejected?` : `No file is attached. Which original ${d.doc_type} did you check?`);
+        if (!remarks) return;
+      }
+      const r = await apiClient.patch(`/compliance/documents/${d.id}/verify`, { decision, remarks });
       toast(`${d.doc_type} ${decision === 'Valid' ? 'verified' : 'rejected'}${r.alerts_auto_resolved ? ` — ${r.alerts_auto_resolved} alert(s) auto-resolved` : ''}`);
       load();
     } catch (e) { toast(e.message, 'error'); }
@@ -93,7 +98,7 @@ function Documents({ user, params, setParams }) {
                   <td><div className="sl-font-medium sl-text-sm">{d.doc_type}</div>{d.renewal_of_id && <span className="sl-badge sl-badge--accent">Renewal</span>}</td>
                   <td className="sl-text-xs"><div className="sl-font-mono">{d.doc_number}</div><div className="sl-text-muted">{d.issued_by}</div></td>
                   <td className="sl-whitespace-nowrap">{d.valid_to ? fmtDate(d.valid_to) : 'Permanent'}{d.days_left != null && <div className={`sl-text-xs ${d.days_left < 0 ? 'sl-text-danger' : d.days_left <= 60 ? 'aq-tone-warning' : 'sl-text-muted'}`}>{d.days_left < 0 ? `expired ${-d.days_left}d ago` : `${d.days_left} days left`}</div>}</td>
-                  <td><StatusBadge status={d.status} />{d.file_url && <div><a className="sl-text-xs sl-text-accent" href={d.file_url} target="_blank" rel="noreferrer">view file</a></div>}</td>
+                  <td><StatusBadge status={d.status} />{d.unverified_import && <div><span className="sl-badge sl-badge--warning">Imported, not verified</span></div>}{d.file_url && <div><button type="button" className="sl-btn sl-btn--ghost sl-btn--sm sl-text-xs sl-text-accent" onClick={() => downloadFile(d.file_url, d.file_name).catch(e => toast(e.message, 'error'))}>view file</button></div>}</td>
                   <td className="sl-text-right sl-whitespace-nowrap">
                     {isOffice(user) && d.status === 'Pending Verification' && <><button className="sl-btn sl-btn--primary sl-btn--sm" onClick={() => verify(d, 'Valid')}><Check size={14} /> Verify</button> <button className="sl-btn sl-btn--ghost sl-btn--sm" onClick={() => verify(d, 'Rejected')}><X size={14} /></button></>}
                     {['Expiring Soon', 'Expired'].includes(d.status) && (d.renewal_pending ? <span className="sl-badge sl-badge--info">Renewal under verification</span> : <button className="sl-btn sl-btn--secondary sl-btn--sm" onClick={() => setModal({ kind: 'renew', d })}>Renew</button>)}

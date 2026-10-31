@@ -13,7 +13,8 @@ router.post('/chat', authenticate, async (req, res) => {
     const { message, session_id, fast } = req.body;
     if (!message) return res.status(400).json({ success: false, error: 'Message required' });
 
-    let session = session_id ? await prisma.conversationSession.findUnique({ where: { id: session_id } }).catch(() => null) : null;
+    // A session is only ever resumed by the user who owns it.
+    let session = session_id ? await prisma.conversationSession.findFirst({ where: { id: String(session_id), user_id: req.user.id } }).catch(() => null) : null;
     let history = session ? JSON.parse(session.messages || '[]') : [];
     if (!session) session = await prisma.conversationSession.create({ data: { user_id: req.user.id } });
 
@@ -26,7 +27,7 @@ router.post('/chat', authenticate, async (req, res) => {
     res.json({ success: true, data: { answer, trace, engine, session_id: session.id } });
   } catch (error) {
     console.error('AI chat error:', error);
-    res.status(500).json({ success: false, error: 'AI service error: ' + error.message });
+    res.status(500).json({ success: false, error: 'The assistant could not answer right now' });
   }
 });
 
@@ -62,7 +63,8 @@ router.get('/insights', authenticate, async (req, res) => {
 });
 
 router.delete('/sessions/:id', authenticate, async (req, res) => {
-  try { await prisma.conversationSession.delete({ where: { id: req.params.id } }); } catch { /* ignore */ }
+  const out = await prisma.conversationSession.deleteMany({ where: { id: String(req.params.id), user_id: req.user.id } });
+  if (!out.count) return res.status(404).json({ success: false, error: 'Not found' });
   res.json({ success: true });
 });
 

@@ -27,6 +27,21 @@ AICTE moves applications from technical institutions through scrutiny, re-scruti
 - **AI Import Studio**, ported from odoo_2026. It takes registers and document lists as desks actually keep them: title rows, abbreviated headers, mixed date formats, "MH"/"maha.", CAPS names, "540 seats", duplicates and TOTAL rows. Three voters judge every column (header text, value shape and the local AI model), and the screen shows how each one voted. Values are cleaned, missing required columns can be filled for every row (provisional IDs, a default type), re-imports update instead of duplicating, and imported validity dates raise alerts immediately. Three realistic sample files are built in.
 - **Role-scoped views.** The Approval Bureau (Admin) sees the whole country, Regional Officers see their region, EVC experts see their panels, and institutions see only themselves. Every action is written to the audit trail.
 
+### Hardening pass (H0)
+- **APH routes from Table-2.3.** Each application category has its own processing route. Self-disclosure EoA and NRI seats go straight to the EC. Change of name, closure, intake reduction and FN/OCI seats go through Scrutiny only. New programmes, intake increases, change of site, mergers and new institutions go through Scrutiny + EVC.
+  - The route is pinned per application and shown with its APH clause. The Bureau can change routes in Settings; a change applies to new applications only.
+  - The SHC is a compliance hearing before the EC (2.23.3). The SAC appeal must come within **7 days** (1.11(a), 2.24(a)) and can remand a case to Scrutiny or EVC.
+- **Automatic movement.** Filing the EVC report moves a case to the next stage on its route. Answering every deficiency (with no document still flagged) sends it to re-scrutiny. Every move that is not a plain forward step records a reason.
+- **Escalation ladder.** An overdue item (stage pendency, EVC report, undertaking, expired document) climbs from Regional Officer to Bureau Head to Member Secretary as days pass. It also climbs early when the current level does not acknowledge in time. Acknowledging needs an action note and a promised date. Everything closes itself once the item is cleared.
+- **Reminder cadences.** Reminders go out before due dates (for example 30/15/7/3/1/0 days) and then every few days while overdue, as one digest per person per run. They are never duplicated.
+- **Tamper-evident audit trail.** Every action is hash-chained (`AuditEvent`). The database refuses UPDATE and DELETE on the chain. The chain head is anchored daily, and *Audit Trail → Verify integrity* recomputes the whole chain.
+- **Security.** Uploads are accepted only as PDF, JPEG or PNG (checked by file signature), stored under server names with a SHA-256 hash, and served only to authorised users, as downloads. Also in this pass:
+  - helmet with a CSP, a CORS allow-list, and a refusal to start in production with a weak `JWT_SECRET`
+  - sign-in rate limit and account lockout, constant-time login, password change
+  - authorization fixes: EVC report overwrite, deficiency IDOR, rule-scope widening, import jurisdiction, AI session ownership
+  - generic error messages that carry a request ID
+- **Integrity.** Imported documents are flagged "not verified" until an officer checks the original. Renewals must be the same document type, carry a file, and run past the current expiry. Alert rules are retired, never deleted.
+
 ## Run it
 
 To deploy with Docker or PostgreSQL, see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). To integrate with other systems, see the REST API reference in [docs/API.md](docs/API.md).
@@ -54,7 +69,7 @@ Continuing development on another machine or in a new AI session? Start with [`H
 
 ### Test
 ```bash
-npm run seed --prefix server && npm run e2e --prefix server   # 89 checks: lifecycle incl. document checklist, all four roles, Import Studio, security & race regressions (reseed afterwards)
+npm run seed --prefix server && npm run e2e --prefix server   # 113 checks: lifecycle incl. APH routes and auto-advance, document checklist, all four roles, Import Studio, escalation and reminders, audit-chain tamper tests, security & race regressions (reseed afterwards)
 ```
 
 ## Demo script (about 6 minutes)

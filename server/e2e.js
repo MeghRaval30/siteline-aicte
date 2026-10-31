@@ -55,8 +55,7 @@ const uploadItem = (who, appId, itemId) => who.post(`/applications/${appId}/chec
   check(r.success, 'institution responds to deficiency');
   r = await uploadItem(inst, id, lab.id);
   check(r.success && r.data.status === 'Uploaded', 'institution re-uploads the deficient document');
-  r = await inst.post(`/applications/${id}/transition`, { to: 'RESCRUTINY' });
-  check(r.success, 'institution submits for re-scrutiny');
+  check(r.data.auto_advanced_to === 'RESCRUTINY', 'case moves to re-scrutiny automatically once every deficiency is answered');
   await off.patch(`/applications/${id}/checklist/${lab.id}/review`, { decision: 'Verified' });
   r = await off.post(`/applications/${id}/transition`, { to: 'EVC' });
   check(r.success, 'officer verifies the re-upload and clears re-scrutiny to EVC');
@@ -80,8 +79,9 @@ const uploadItem = (who, appId, itemId) => who.post(`/applications/${appId}/chec
   check(r.status === 409, 'double-booking the same panel on the same day is blocked');
   r = await expert.patch(`/evc/${visitId}/report`, { recommendation: 'Recommended with Conditions', score: 78, report: 'Lab now adequate; faculty hiring pending.' });
   check(r.success, 'expert files EVC report');
-  r = await expert.post(`/applications/${id}/transition`, { to: 'EC_REVIEW', remarks: 'EVC recommends' });
-  check(r.success, 'application moves to Executive Committee');
+  check(r.data.auto_advanced_to === 'EC_REVIEW', 'filing the EVC report moves the case to the Executive Committee automatically');
+  r = await off.patch(`/evc/${visitId}/report`, { recommendation: 'Not Recommended', report: 'overwrite attempt' });
+  check(r.status === 409, 'a filed EVC report cannot be overwritten by an officer');
   r = await off.post(`/applications/${id}/transition`, { to: 'CONDITIONAL', remarks: 'x', undertakings: [{ title: 'y', due_date: date }] });
   check(r.status === 403, 'officer cannot grant approval (Admin only)');
   r = await admin.post(`/applications/${id}/transition`, { to: 'CONDITIONAL', remarks: 'Approved with conditions', undertakings: [{ category: 'Faculty Recruitment', title: 'Recruit 3 robotics faculty', due_date: new Date(Date.now() + 120 * 86400000).toISOString() }] });
@@ -176,7 +176,7 @@ const uploadItem = (who, appId, itemId) => who.post(`/applications/${appId}/chec
   check(r.status === 400, 'valid-to before valid-from is rejected');
   r = await inst.post('/applications', { type: 'New Course', courses: '' });
   check(r.status === 400, 'New Course without a course name is rejected');
-  const race = await off.post('/applications', { type: 'Extension of Approval', institution_id: (await off.get('/institutions')).data[0].id });
+  const race = await off.post('/applications', { type: 'Change of Name', institution_id: (await off.get('/institutions')).data[0].id });
   for (const it of (await off.get(`/applications/${race.data.id}`)).data.checklist) await uploadItem(off, race.data.id, it.id);
   const [t1, t2] = await Promise.all([off.post(`/applications/${race.data.id}/transition`, { to: 'SCRUTINY' }), off.post(`/applications/${race.data.id}/transition`, { to: 'SCRUTINY' })]);
   check([t1.status, t2.status].sort().join() === '200,409', 'double-submitted transition: one succeeds, one is refused (409)');
@@ -241,6 +241,92 @@ const uploadItem = (who, appId, itemId) => who.post(`/applications/${appId}/chec
     const d = await role.get('/dashboard/overview');
     check(d.success, `dashboard loads for ${role.user.role}`);
   }
+
+  console.log('APH routes (Table-2.3)');
+  const meta = (await off.get('/applications/meta')).data;
+  check(meta.category_routes['Extension of Approval'] === 'SELF_DISCLOSURE' && meta.category_routes['Change of Name'] === 'SCRUTINY_ONLY', 'categories map to APH routes');
+  const eoa = await inst.post('/applications', { type: 'Extension of Approval' });
+  let eoaApp = (await off.get(`/applications/${eoa.data.id}`)).data;
+  check(eoaApp.route.code === 'SELF_DISCLOSURE' && eoaApp.allowed_transitions.map(m => m.to).join() === 'EC_REVIEW', 'self-disclosure EoA skips Scrutiny and EVC');
+  r = await off.post(`/applications/${eoa.data.id}/transition`, { to: 'EC_REVIEW' });
+  check(r.status === 400 && /self-disclosure is incomplete/.test(r.error), 'self-disclosure must be complete before the EC');
+  const con = (await off.get(`/applications/${race.data.id}`)).data;
+  check(con.route.code === 'SCRUTINY_ONLY' && !con.allowed_transitions.some(m => m.to === 'EVC') && con.allowed_transitions.some(m => m.to === 'EC_REVIEW'), 'change of name goes from Scrutiny straight to the EC (no EVC)');
+  const oldRejected = (await admin.get('/applications?stage=REJECTED&limit=500')).data.find(a => a.sla.days > 7);
+  if (oldRejected) {
+    const d = (await admin.get(`/applications/${oldRejected.id}`)).data;
+    check(!d.allowed_transitions.some(m => m.to === 'SAC'), `appeal window is 7 days (APH 2.24(a)): no appeal ${d.sla.days} days after the LoR`);
+  }
+  r = await admin.put('/settings/routes/SCRUTINY_ONLY', { stages: ['SCRUTINY', 'SUBMITTED'], reason: 'test' });
+  check(r.status === 400, 'route editor rejects stages out of APH order');
+  r = await off.put('/settings/routes/SCRUTINY_ONLY', { stages: ['SUBMITTED', 'SCRUTINY', 'EC_REVIEW'], reason: 'x' });
+  check(r.status === 403, 'only the Approval Bureau can change routes');
+
+  console.log('Security hardening');
+  const someItem = (await inst.get(`/applications/${eoa.data.id}`)).data.checklist[0];
+  r = await inst.post(`/applications/${eoa.data.id}/checklist/${someItem.id}/upload`, { file_name: 'lease.html', file_data: Buffer.from('<script>alert(1)</script>').toString('base64') });
+  check(r.status === 400 && /PDF, JPEG or PNG/.test(r.error), 'an HTML file disguised as a document is refused');
+  r = await uploadItem(inst, eoa.data.id, someItem.id);
+  const fileUrl = r.data.file_url;
+  check(r.success && fileUrl.startsWith('/api/v1/files/') && /^[0-9a-f]{64}$/.test(r.data.file_sha256), 'stored under a server name with a SHA-256 hash');
+  let raw = await fetch(`${B.replace('/api/v1', '')}${fileUrl}`);
+  check(raw.status === 401, 'files are not served without a session');
+  raw = await fetch(`${B.replace('/api/v1', '')}${fileUrl}`, { headers: { Authorization: `Bearer ${inst.token}` } });
+  check(raw.status === 200 && /attachment/.test(raw.headers.get('content-disposition')) && raw.headers.get('x-content-type-options') === 'nosniff', 'owner downloads the file as an attachment with nosniff');
+  const sroOfficer = await login('ro.sro@aicte.gov.in');
+  raw = await fetch(`${B.replace('/api/v1', '')}${fileUrl}`, { headers: { Authorization: `Bearer ${sroOfficer.token}` } });
+  check(raw.status === 404, 'another region\'s officer cannot fetch the file');
+  for (let i = 0; i < 5; i++) await fetch(`${B}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'nobody@aicte.gov.in', password: 'wrong' }) });
+  raw = await fetch(`${B}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'nobody@aicte.gov.in', password: 'wrong' }) });
+  check(raw.status === 429, 'sign-in locks after 5 failed attempts');
+  raw = await fetch(`${B}/health`);
+  check(raw.headers.get('x-powered-by') === null && raw.headers.get('x-content-type-options') === 'nosniff', 'security headers set, framework banner removed');
+  const myRule = (await off.get('/alerts/rules')).data.find(x => (typeof x.criteria === 'string' ? JSON.parse(x.criteria || '{}') : (x.criteria || {})).region === 'WRO');
+  if (myRule) {
+    r = await off.patch(`/alerts/rules/${myRule.id}`, { criteria: {} });
+    check(r.status === 403, 'an officer cannot widen a regional rule to the whole country');
+  }
+  const pendingDef = (await admin.get('/applications?stage=DEFICIENCY&limit=500')).data[0];
+  const pendingDefDetail = pendingDef && (await admin.get(`/applications/${pendingDef.id}`)).data.deficiencies.find(d => d.status === 'Open');
+  if (pendingDefDetail) {
+    r = await expert.patch(`/applications/deficiencies/${pendingDefDetail.id}/respond`, { response: 'not mine' });
+    check(r.status === 403, 'an expert cannot answer an institution\'s deficiency');
+  }
+  const adminChat = await admin.post('/ai/chat', { message: 'pendency', fast: true });
+  r = await fetch(`${B}/ai/sessions/${adminChat.data.session_id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${inst.token}` } }).then(x => ({ status: x.status }));
+  check(r.status === 404, 'a user cannot delete another user\'s AI conversation');
+  const users = (await off.get('/users')).data;
+  check(!users.some(u => u.role === 'Officer' && u.region_id && u.region_id !== off.user.region_id), 'officers no longer see other regions\' officers');
+  const imported = (await off.get('/compliance/documents?limit=1000')).data.filter(d => d.unverified_import);
+  check(imported.length > 0, `imported documents are flagged until an officer checks the original (${imported.length})`);
+
+  console.log('Reminders, escalation and audit chain');
+  r = await admin.post('/alerts/run', {});
+  check(r.success && r.data.escalations && r.data.reminders, `engine run: ${r.data.escalations?.raised} escalations raised, ${r.data.reminders?.sent} reminders`);
+  r = await admin.post('/alerts/run', {});
+  check(r.data.reminders.sent === 0 && r.data.escalations.raised === 0, 'a second run sends no duplicate reminders or escalations');
+  const esc = await off.get('/escalations');
+  check(esc.success && esc.data.length > 0 && esc.data.every(e => e.region_id === off.user.region_id), `officer sees only their region's escalations (${esc.data.length})`);
+  const l1 = esc.data.find(e => e.level === 1 && !e.ack_at);
+  if (l1) {
+    r = await off.patch(`/escalations/${l1.id}/ack`, {});
+    check(r.status === 400, 'acknowledging an escalation needs an action note and a promised date');
+    r = await off.patch(`/escalations/${l1.id}/ack`, { note: 'Calling the institution today', promised_date: new Date(Date.now() + 3 * 86400000).toISOString() });
+    check(r.success && r.data.ack_by, 'Regional Officer acknowledges with a promised date');
+  }
+  const higher = (await admin.get('/escalations')).data.find(e => e.level >= 2);
+  check(!!higher && higher.target_role === 'Admin', `overdue items climb the ladder (L${higher?.level} → ${higher?.target_label})`);
+  r = await admin.get('/audit/verify');
+  check(r.success && r.data.ok && r.data.count > 10, `audit chain verifies (${r.data.count} events)`);
+  const { PrismaClient } = require('@prisma/client');
+  const db = new PrismaClient();
+  let tamperBlocked = false;
+  try { await db.$executeRawUnsafe('UPDATE "AuditEvent" SET action = \'tampered\' WHERE id = (SELECT MIN(id) FROM "AuditEvent")'); } catch { tamperBlocked = true; }
+  check(tamperBlocked, 'the database refuses to edit the audit trail');
+  tamperBlocked = false;
+  try { await db.$executeRawUnsafe('DELETE FROM "AuditEvent" WHERE id = (SELECT MIN(id) FROM "AuditEvent")'); } catch { tamperBlocked = true; }
+  check(tamperBlocked, 'the database refuses to delete from the audit trail');
+  await db.$disconnect();
 
   console.log(failures ? `\n${failures} FAILURE(S)` : '\nALL CHECKS PASSED');
   process.exit(failures ? 1 : 0);

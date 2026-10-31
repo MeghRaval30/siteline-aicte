@@ -35,4 +35,29 @@ router.put('/sla', requireRole(['Admin']), h(async (req, res) => {
   ok(res, { stages: view(await prisma.stageSla.findMany()), changed: changes, alerts_raised: run.results?.reduce((t, r) => t + r.created, 0) || 0, alerts_resolved: run.results?.reduce((t, r) => t + r.auto_resolved, 0) || 0 });
 }));
 
+// ---------- APH processing routes per category (Table-2.3) ----------
+const { routes, loadRoutes, validateStages, CATEGORY_ROUTE } = require('../../shared/routes');
+
+router.get('/routes', h(async (req, res) => {
+  await loadRoutes(prisma);
+  ok(res, { routes: Object.values(routes()), categories: CATEGORY_ROUTE });
+}));
+
+// A changed route applies to new applications only; cases in flight keep the version they were submitted under.
+router.put('/routes/:code', requireRole(['Admin']), h(async (req, res) => {
+  const current = routes()[req.params.code];
+  if (!current) return fail(res, 404, 'Unknown route');
+  const err = validateStages(req.body.stages);
+  if (err) return fail(res, 400, err);
+  if (!req.body.reason) return fail(res, 400, 'Record the reason for changing the route (e.g. the APH amendment)');
+  const row = await prisma.routeTemplate.upsert({
+    where: { code: current.code },
+    create: { code: current.code, name: req.body.name || current.name, stages: JSON.stringify(req.body.stages), clause: req.body.clause || current.clause, version: current.version + 1, updated_by: req.user.name },
+    update: { name: req.body.name || current.name, stages: JSON.stringify(req.body.stages), clause: req.body.clause || current.clause, version: current.version + 1, updated_by: req.user.name },
+  });
+  await loadRoutes(prisma);
+  await logActivity({ actorUserId: req.user.id, action: `Changed route ${row.code} to ${req.body.stages.join(' → ')} (v${row.version}): ${req.body.reason}`, entityType: 'Settings' });
+  ok(res, routes()[row.code]);
+}));
+
 module.exports = router;

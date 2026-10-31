@@ -116,9 +116,13 @@ router.patch('/:id/reschedule', requireRole(['Admin', 'Officer']), h(async (req,
 }));
 
 router.patch('/:id/cancel', requireRole(['Admin', 'Officer']), h(async (req, res) => {
-  const v = await prisma.eVCVisit.findUnique({ where: { id: Number(req.params.id) }, include: { application: true } });
+  const v = await prisma.eVCVisit.findUnique({ where: { id: Number(req.params.id) }, include: { application: true, members: true } });
   if (!v || !(await canTouchInstitution(req.user, v.application.institution_id))) return fail(res, 404, 'Visit not found');
+  if (v.status !== 'Scheduled') return fail(res, 400, 'Only a scheduled visit can be cancelled');
+  if (!req.body.reason) return fail(res, 400, 'Give the reason for cancelling the visit');
   const upd = await prisma.eVCVisit.update({ where: { id: Number(req.params.id) }, data: { status: 'Cancelled' } });
+  for (const m of v.members) await notify({ userId: m.user_id, type: 'EVC', message: `EVC visit for ${v.application.app_number} cancelled: ${req.body.reason}`, relatedEntityType: 'EVCVisit', relatedEntityId: v.id });
+  await logActivity({ actorUserId: req.user.id, action: `Cancelled EVC for ${v.application.app_number}: ${req.body.reason}`, entityType: 'EVCVisit', entityId: v.id });
   ok(res, upd);
 }));
 
@@ -126,13 +130,22 @@ router.patch('/:id/report', h(async (req, res) => {
   const { recommendation, report, score } = req.body;
   const visit = await prisma.eVCVisit.findUnique({ where: { id: Number(req.params.id) }, include: { members: true, application: true } });
   if (!visit) return fail(res, 404, 'Visit not found');
-  if (!isOffice(req.user) && !visit.members.some(m => m.user_id === req.user.id)) return fail(res, 403, 'Only panel members can file the report');
+  const onPanel = visit.members.some(m => m.user_id === req.user.id);
+  // Panel members file their own report; the office may file on a panel's behalf only within its region.
+  if (!onPanel && !(isOffice(req.user) && await canTouchInstitution(req.user, visit.application.institution_id))) return fail(res, 403, 'Only panel members can file the report');
+  if (visit.status === 'Cancelled') return fail(res, 400, 'This visit was cancelled');
+  // A filed report is final; only the Approval Bureau may amend it, with a reason, and the old version is kept.
+  if (visit.status === 'Completed' && req.user.role !== 'Admin') return fail(res, 409, 'The report for this visit has already been filed');
+  if (visit.status === 'Completed' && !req.body.amend_reason) return fail(res, 400, 'Give the reason for amending a filed report');
   if (!['Recommended', 'Not Recommended', 'Recommended with Conditions'].includes(recommendation)) return fail(res, 400, 'Choose a recommendation');
   if (!report) return fail(res, 400, 'Report text required');
-  const upd = await prisma.eVCVisit.update({ where: { id: visit.id }, data: { recommendation, report, score: score != null ? Number(score) : null, status: 'Completed', completed_at: new Date() } });
+  if (visit.status === 'Completed') await logActivity({ actorUserId: req.user.id, action: `Amended EVC report for ${visit.application.app_number}: ${req.body.amend_reason}`, entityType: 'EVCVisit', entityId: visit.id, metadata: { previous: { recommendation: visit.recommendation, report: visit.report, score: visit.score } } });
+  const upd = await prisma.eVCVisit.update({ where: { id: visit.id }, data: { recommendation, report, score: score != null ? Number(score) : null, status: 'Completed', completed_at: visit.completed_at || new Date() } });
   if (visit.application.assigned_officer_id) await notify({ userId: visit.application.assigned_officer_id, type: 'EVC', message: `EVC report filed for ${visit.application.app_number}: ${recommendation}`, relatedEntityType: 'Application', relatedEntityId: visit.application_id });
   await logActivity({ actorUserId: req.user.id, action: `Filed EVC report for ${visit.application.app_number}: ${recommendation}`, entityType: 'EVCVisit', entityId: visit.id });
-  ok(res, upd);
+  // Filing the report completes the EVC stage: the case moves on to the next stage of its route.
+  const advanced = await require('../applications/application.routes').autoAdvance(visit.application_id, req.user.id, `EVC report filed (${recommendation})`);
+  ok(res, { ...upd, auto_advanced_to: advanced });
 }));
 
 module.exports = router;

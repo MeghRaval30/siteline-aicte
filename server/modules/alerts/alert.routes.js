@@ -44,7 +44,9 @@ router.patch('/:id/acknowledge', h(async (req, res) => {
 
 router.patch('/:id/resolve', requireRole(['Admin', 'Officer']), h(async (req, res) => {
   if (!(await scopedAlert(req, res))) return;
-  const a = await prisma.alert.update({ where: { id: Number(req.params.id) }, data: { status: 'Resolved', resolved_at: new Date(), acknowledged_by: req.user.name } });
+  if (!req.body.reason) return fail(res, 400, 'Say how the alert was resolved');
+  const a = await prisma.alert.update({ where: { id: Number(req.params.id) }, data: { status: 'Resolved', resolved_at: new Date(), acknowledged_by: req.user.name, resolution_note: req.body.reason } });
+  await logActivity({ actorUserId: req.user.id, action: `Resolved alert: ${a.title} (${req.body.reason})`, entityType: 'Alert', entityId: a.id });
   ok(res, a);
 }));
 
@@ -85,21 +87,26 @@ router.patch('/rules/:id', requireRole(['Admin', 'Officer']), h(async (req, res)
   if (!existing) return fail(res, 404, 'Rule not found');
   if (req.user.role !== 'Admin') {
     const region = req.user.region_id ? (await prisma.region.findUnique({ where: { id: req.user.region_id } })).code : null;
-    if (JSON.parse(existing.criteria || '{}').region !== region) return fail(res, 403, 'Only the Approval Bureau can change national rules');
+    if (!region || JSON.parse(existing.criteria || '{}').region !== region) return fail(res, 403, 'Only the Approval Bureau can change national rules');
+    // An officer's rule stays pinned to their own Regional Office.
+    if (req.body.criteria && req.body.criteria.region !== region) return fail(res, 403, 'A regional rule must stay limited to your Regional Office');
   }
   const data = {};
   for (const k of ['name', 'severity', 'active', 'notify_roles', 'notify_institution']) if (req.body[k] !== undefined) data[k] = req.body[k];
   if (req.body.params) data.params = JSON.stringify(req.body.params);
   if (req.body.criteria) data.criteria = JSON.stringify(req.body.criteria);
   const rule = await prisma.alertRule.update({ where: { id: Number(req.params.id) }, data });
+  await logActivity({ actorUserId: req.user.id, action: `Edited alert rule "${rule.name}"`, entityType: 'AlertRule', entityId: rule.id, metadata: { changes: req.body } });
   ok(res, rule);
 }));
 
 router.delete('/rules/:id', requireRole(['Admin']), h(async (req, res) => {
+  // Retire, never delete: the rule's alerts are part of the audit trail.
   const id = Number(req.params.id);
-  await prisma.alert.deleteMany({ where: { rule_id: id } });
-  await prisma.alertRule.delete({ where: { id } });
-  ok(res, { deleted: id });
+  const rule = await prisma.alertRule.update({ where: { id }, data: { active: false, retired_at: new Date() } });
+  await prisma.alert.updateMany({ where: { rule_id: id, status: { not: 'Resolved' } }, data: { status: 'Resolved', resolved_at: new Date(), resolution_note: 'Rule retired' } });
+  await logActivity({ actorUserId: req.user.id, action: `Retired alert rule "${rule.name}"`, entityType: 'AlertRule', entityId: id });
+  ok(res, { retired: id });
 }));
 
 router.post('/run', requireRole(['Admin', 'Officer']), h(async (req, res) => {

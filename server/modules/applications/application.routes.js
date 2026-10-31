@@ -8,18 +8,45 @@ const logActivity = require('../../shared/logActivity');
 const { STAGES, TRANSITIONS, MAIN_TRACK, STATUS_FOR_STAGE, slaInfo, allowedTransitions, isTerminal, daysBetween, DAY } = require('../../shared/workflow');
 const { appScope, isOffice, canTouchInstitution, ok, fail, h } = require('../../shared/scope');
 const { template, summary, TEMPLATES } = require('../../shared/checklist');
-const fs = require('fs');
-const path = require('path');
-const UPLOAD_DIR = path.join(__dirname, '../../uploads');
-fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+const { routes, routeFor, CATEGORY_ROUTE, nextStage } = require('../../shared/routes');
+const { saveUpload, UploadError } = require('../../shared/files');
 
 const router = express.Router();
 
-const APP_TYPES = ['New Institution', 'Extension of Approval', 'Increase in Intake', 'New Course', 'Change of Name', 'Change of Site', 'Closure'];
+const APP_TYPES = Object.keys(CATEGORY_ROUTE); // categories of APH Table-2.3
 const DEFICIENCY_CATEGORIES = ['Land', 'Building', 'Faculty', 'Infrastructure', 'Laboratory', 'Library', 'Financial', 'Documents'];
 const UNDERTAKING_CATEGORIES = ['Lease Renewal', 'Faculty Recruitment', 'Building Completion', 'Fire NOC', 'Land Conversion', 'Library', 'Accreditation'];
 
 const withSla = a => ({ ...a, sla: slaInfo(a), stage_label: STAGES[a.stage]?.label });
+const routeView = a => { const r = routeFor(a); return { code: r.code, name: r.name, clause: r.clause, version: a.route_version || r.version, stages: r.stages }; };
+
+// Automatic movement on completion (PS requirement A): when the work of a stage is done,
+// the case moves to the next stage on its route without anyone pressing a button.
+// The move is recorded like any other, against the person whose action completed the stage.
+async function autoAdvance(appId, actorId, reason) {
+  const app = await prisma.application.findUnique({ where: { id: appId }, include: { deficiencies: true, checklist: true, evc_visits: true } });
+  if (!app) return null;
+  let to = null;
+  if (app.stage === 'EVC' && app.evc_visits.some(v => v.status === 'Completed' && v.completed_at && v.completed_at >= app.stage_entered_at)) to = nextStage(app);
+  if (app.stage === 'DEFICIENCY' && app.deficiencies.length && !app.deficiencies.some(d => d.status === 'Open') && !app.checklist.some(i => i.status === 'Deficient')) to = 'RESCRUTINY';
+  if (!to) return null;
+  const now = new Date();
+  const s = slaInfo(app, now);
+  const data = { stage: to, stage_entered_at: now, status: 'In Process' };
+  if (to === 'RESCRUTINY') data.rescrutiny_count = { increment: 1 };
+  const moved = await prisma.$transaction(async tx => {
+    const m = await tx.application.updateMany({ where: { id: app.id, stage: app.stage, stage_entered_at: app.stage_entered_at }, data });
+    if (m.count !== 1) return false;
+    await tx.stageTransition.create({ data: { application_id: app.id, from_stage: app.stage, to_stage: to, actor_id: actorId, remarks: `Auto-advanced: ${reason}`, days_in_stage: s.days, sla_breached: s.breached } });
+    return true;
+  });
+  if (!moved) return null;
+  await logActivity({ actorUserId: actorId, action: `${app.app_number}: ${STAGES[app.stage].label} → ${STAGES[to].label} (automatic: ${reason})`, entityType: 'Application', entityId: app.id });
+  await notifyInstitution(app.institution_id, `${app.app_number} moved to ${STAGES[to].label} (${reason})`, app.id);
+  if (app.assigned_officer_id) await notify({ userId: app.assigned_officer_id, type: 'APPLICATION', message: `${app.app_number} moved to ${STAGES[to].label} automatically: ${reason}`, relatedEntityType: 'Application', relatedEntityId: app.id });
+  return to;
+}
+router.autoAdvance = autoAdvance;
 
 async function notifyInstitution(institutionId, message, appId) {
   const users = await prisma.user.findMany({ where: { institution_id: institutionId, role: 'Institution' } });
@@ -47,7 +74,7 @@ router.get('/verify/:code', h(async (req, res) => {
 router.use(authenticate);
 
 router.get('/meta', h(async (req, res) => {
-  ok(res, { stages: STAGES, transitions: TRANSITIONS, main_track: MAIN_TRACK, types: APP_TYPES, checklist_templates: TEMPLATES, deficiency_categories: DEFICIENCY_CATEGORIES, undertaking_categories: UNDERTAKING_CATEGORIES });
+  ok(res, { stages: STAGES, transitions: TRANSITIONS, main_track: MAIN_TRACK, types: APP_TYPES, routes: routes(), category_routes: CATEGORY_ROUTE, checklist_templates: TEMPLATES, deficiency_categories: DEFICIENCY_CATEGORIES, undertaking_categories: UNDERTAKING_CATEGORIES });
 }));
 
 router.get('/', h(async (req, res) => {
@@ -95,7 +122,7 @@ router.get('/:id', h(async (req, res) => {
   });
   if (!app) return fail(res, 404, 'Application not found');
   const instDocs = await prisma.complianceDocument.findMany({ where: { institution_id: app.institution_id, status: { not: 'Superseded' } }, orderBy: { valid_to: 'asc' } });
-  ok(res, { ...withSla(app), checklist_summary: summary(app.checklist), institution_documents: instDocs, allowed_transitions: allowedTransitions(app, req.user) });
+  ok(res, { ...withSla(app), route: routeView(app), checklist_summary: summary(app.checklist), institution_documents: instDocs, allowed_transitions: allowedTransitions(app, req.user).map(({ when, roles, ...m }) => m) });
 }));
 
 router.post('/', h(async (req, res) => {
@@ -108,12 +135,16 @@ router.post('/', h(async (req, res) => {
   if (!(await canTouchInstitution(req.user, institution_id))) return fail(res, 403, 'That institution is outside your jurisdiction');
   const inst = await prisma.institution.findUnique({ where: { id: institution_id }, include: { region: true } });
   if (!inst) return fail(res, 404, 'Institution not found');
-  const year = academic_year || '2027-28';
-  const count = await prisma.application.count();
-  const app_number = `APH/${year.slice(0, 4)}/${inst.region.code}/${String(count + 1).padStart(5, '0')}`;
+  // Academic year: the next session (APH cycles run a year ahead of admissions).
+  const y = new Date().getFullYear() + 1;
+  const year = academic_year || `${y}-${String(y + 1).slice(2)}`;
+  const route = routes()[CATEGORY_ROUTE[type]];
+  // Number from the highest existing sequence, not a count, so concurrent submissions cannot collide.
+  const last = await prisma.application.findFirst({ orderBy: { id: 'desc' }, select: { id: true } });
+  const app_number = `APH/${year.slice(0, 4)}/${inst.region.code}/${String((last?.id || 0) + 1).padStart(5, "0")}`;
   const app = await prisma.application.create({
     data: {
-      app_number, institution_id, type, academic_year: year, priority: priority || 'Normal',
+      app_number, institution_id, type, academic_year: year, priority: priority || 'Normal', route_code: route.code, route_version: route.version,
       intake_requested: intake_requested ? Number(intake_requested) : null, courses: courses || null,
       transitions: { create: { to_stage: 'SUBMITTED', actor_id: req.user.id, remarks: 'Application submitted on portal' } },
       checklist: { create: template(type) },
@@ -139,8 +170,16 @@ router.post('/:id/transition', h(async (req, res) => {
   const docs = summary(app.checklist);
   if (app.stage === 'SUBMITTED' && to === 'SCRUTINY' && docs.missing.length)
     return fail(res, 400, `Scrutiny can't start: ${docs.missing.length} required document(s) not uploaded (${docs.missing.slice(0, 3).join('; ')}${docs.missing.length > 3 ? '…' : ''})`);
-  if (['SCRUTINY', 'RESCRUTINY'].includes(app.stage) && ['EVC', 'EC_REVIEW'].includes(to) && docs.unverified.length)
+  if (['SCRUTINY', 'RESCRUTINY'].includes(app.stage) && ['EVC', 'EC_REVIEW', 'SHC'].includes(to) && docs.unverified.length)
     return fail(res, 400, `Verify every required document before clearing scrutiny (${docs.unverified.length} not verified)`);
+  // Self-disclosure route (no scrutiny): the institution's declaration must be complete before the EC sees it.
+  if (app.stage === 'SUBMITTED' && to === 'EC_REVIEW' && docs.missing.length)
+    return fail(res, 400, `The self-disclosure is incomplete: ${docs.missing.length} required document(s) not uploaded`);
+  // Every move that is not a plain forward step needs a recorded reason (PS: revert with reasons recorded).
+  if (['DEFICIENCY', 'SHC', 'WITHDRAWN', 'SAC'].includes(to) && !remarks && !deficiencies.length)
+    return fail(res, 400, 'Record the reason for this move');
+  if (app.stage === 'SAC' && ['SCRUTINY', 'EVC'].includes(to) && !remarks)
+    return fail(res, 400, 'Record why the SAC remands the case');
   if (to === 'DEFICIENCY' && !deficiencies.length && !app.deficiencies.some(d => d.status === 'Open'))
     return fail(res, 400, 'List at least one deficiency for the institution to address');
   if (app.stage === 'DEFICIENCY' && to === 'RESCRUTINY' && app.deficiencies.some(d => d.status === 'Open'))
@@ -215,13 +254,16 @@ router.post('/:id/deficiencies', requireRole(['Admin', 'Officer', 'Expert']), h(
 }));
 
 router.patch('/deficiencies/:did/respond', h(async (req, res) => {
-  const d = await prisma.deficiency.findUnique({ where: { id: Number(req.params.did) }, include: { application: true } });
+  // Only the institution answers its deficiencies; the office may record a response on its behalf within scope.
+  if (req.user.role === 'Expert') return fail(res, 403, 'Experts cannot respond to deficiencies');
+  if (!req.body.response) return fail(res, 400, 'Response required');
+  const d = await prisma.deficiency.findFirst({ where: { id: Number(req.params.did), application: appScope(req.user) }, include: { application: true } });
   if (!d) return fail(res, 404, 'Not found');
-  if (req.user.role === 'Institution' && d.application.institution_id !== req.user.institution_id) return fail(res, 403, 'Forbidden');
   if (!req.body.response) return fail(res, 400, 'Response required');
   const upd = await prisma.deficiency.update({ where: { id: d.id }, data: { response: req.body.response, status: 'Responded', responded_at: new Date() } });
   await logActivity({ actorUserId: req.user.id, action: `Responded to deficiency (${d.category}) on ${d.application.app_number}`, entityType: 'Deficiency', entityId: d.id });
-  ok(res, upd);
+  const advanced = await autoAdvance(d.application_id, req.user.id, 'every deficiency answered');
+  ok(res, { ...upd, auto_advanced_to: advanced });
 }));
 
 router.patch('/deficiencies/:did/review', requireRole(['Admin', 'Officer', 'Expert']), h(async (req, res) => {
@@ -251,12 +293,12 @@ router.post('/:id/checklist/:itemId/upload', h(async (req, res) => {
   if (item.status === 'Verified') return fail(res, 400, 'This document is already verified');
   const { file_name, file_data } = req.body;
   if (!file_name || !file_data) return fail(res, 400, 'Choose a file to upload');
-  const ext = (String(file_name).match(/\.[a-zA-Z0-9]{1,5}$/) || [''])[0];
-  const stored = `${crypto.randomUUID()}${ext}`;
-  fs.writeFileSync(path.join(UPLOAD_DIR, stored), Buffer.from(String(file_data).replace(/^data:[^;]+;base64,/, ''), 'base64'));
-  const upd = await prisma.checklistItem.update({ where: { id: item.id }, data: { status: 'Uploaded', file_name: String(file_name).slice(0, 120), file_url: `/uploads/${stored}`, uploaded_at: new Date(), remarks: item.status === 'Deficient' ? `Re-uploaded after: ${item.remarks || 'deficiency'}` : null } });
+  let saved;
+  try { saved = saveUpload(file_name, file_data); } catch (e) { if (e instanceof UploadError) return fail(res, 400, e.message); throw e; }
+  const upd = await prisma.checklistItem.update({ where: { id: item.id }, data: { status: 'Uploaded', file_name: saved.file_name, file_url: saved.file_url, file_sha256: saved.sha256, uploaded_at: new Date(), remarks: item.status === 'Deficient' ? `Re-uploaded after: ${item.remarks || 'deficiency'}` : null } });
   await logActivity({ actorUserId: req.user.id, action: `Uploaded "${item.label}" for ${app.app_number}`, entityType: 'Application', entityId: app.id });
-  ok(res, upd);
+  const advanced = app.stage === 'DEFICIENCY' ? await autoAdvance(app.id, req.user.id, 'every deficiency answered') : null;
+  ok(res, { ...upd, auto_advanced_to: advanced });
 }));
 
 router.patch('/:id/checklist/:itemId/review', requireRole(['Admin', 'Officer']), h(async (req, res) => {

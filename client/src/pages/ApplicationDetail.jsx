@@ -1,19 +1,24 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { ArrowLeft, FileText, Plus, Trash2, CalendarPlus, ClipboardEdit, Check, X, Building2, UserCog, AlertTriangle } from 'lucide-react';
-import { apiClient } from '../api/client';
+import { apiClient, downloadFile } from '../api/client';
 import { StageBadge, SlaPill, StatusBadge, Modal, Loading, toast, getUser, isOffice, fmtDate, fmtDateTime, daysUntil, fileToBase64, STAGE_SHORT } from '../components/ui';
 import { ScheduleEvcModal, EvcReportModal } from '../components/EvcModals';
 import { SubmitUndertakingModal, ReviewUndertakingModal, UploadDocModal } from '../components/ComplianceModals';
 
-// The real journey so far (repeats included, e.g. two deficiency rounds), then the projected path ahead.
-const AHEAD = {
-  SUBMITTED: ['SCRUTINY', 'EVC', 'EC_REVIEW', 'APPROVED'], SCRUTINY: ['EVC', 'EC_REVIEW', 'APPROVED'], DEFICIENCY: ['RESCRUTINY', 'EVC', 'EC_REVIEW', 'APPROVED'],
-  RESCRUTINY: ['EVC', 'EC_REVIEW', 'APPROVED'], EVC: ['EC_REVIEW', 'APPROVED'], EC_REVIEW: ['APPROVED'], SAC: ['APPROVED'], SHC: ['CONDITIONAL'],
-};
+// The real journey so far (repeats included, e.g. two deficiency rounds), then the path still
+// ahead on this application's own APH route (Table-2.3), so a scrutiny-only case never shows an EVC.
+const FORWARD = { SUBMITTED: 1, SCRUTINY: 2, DEFICIENCY: 2, RESCRUTINY: 2, EVC: 3, SHC: 4, EC_REVIEW: 5 };
+function aheadOf(app) {
+  if (app.stage === 'SAC') return ['APPROVED'];
+  if (!(app.stage in FORWARD)) return [];
+  const ahead = (app.route?.stages || []).filter(s => FORWARD[s] > FORWARD[app.stage]);
+  if (app.stage === 'DEFICIENCY') ahead.unshift('RESCRUTINY');
+  return [...ahead, 'APPROVED'];
+}
 function Tracker({ app }) {
   const journey = app.transitions.map(t => t.to_stage).filter((s, i, a) => s !== a[i - 1]);
-  const steps = [...journey, ...(AHEAD[app.stage] || [])];
+  const steps = [...journey, ...aheadOf(app)];
   const cur = journey.length - 1;
   return (
     <div className="aq-tracker">
@@ -68,6 +73,7 @@ export default function ApplicationDetail() {
             {isOffice(user) ? <Link to={`/institutions/${app.institution.id}`} className="sl-text-accent"><Building2 size={13} style={{ verticalAlign: -2 }} /> {app.institution.name}</Link> : app.institution.name}
             {' '}· {app.institution.aicte_id} · {app.institution.city}, {app.institution.state} · {app.institution.region.name} · AY {app.academic_year}
           </p>
+          {app.route && <div className="sl-text-xs sl-text-muted sl-mt-1">Route: <span className="sl-badge sl-badge--accent">{app.route.name}</span> <span title="Clause of the Approval Process Handbook this route follows">{app.route.clause}</span>{app.route.version > 1 ? ` · v${app.route.version}` : ''}</div>}
         </div>
         <div className="sl-page__actions">
           {app.letter_code && <button className="sl-btn sl-btn--secondary" onClick={() => navigate(`/applications/${app.id}/letter`)}><FileText size={16} /> {app.stage === 'REJECTED' || app.status === 'Rejected' ? 'LoR' : 'LoA'} letter</button>}
@@ -96,7 +102,7 @@ export default function ApplicationDetail() {
             </div>
             <div className="sl-flex sl-gap-2 sl-flex-wrap">
               {app.allowed_transitions.map(t => (
-                <button key={t.to} className={`sl-btn ${['REJECTED', 'WITHDRAWN'].includes(t.to) ? 'sl-btn--danger' : ['DEFICIENCY'].includes(t.to) ? 'sl-btn--secondary' : 'sl-btn--primary'}`} title={t.hint} onClick={() => setMove(t)}>{t.label}</button>
+                <button key={t.to} className={`sl-btn ${['REJECTED', 'WITHDRAWN'].includes(t.to) ? 'sl-btn--danger' : ['DEFICIENCY'].includes(t.to) ? 'sl-btn--secondary' : 'sl-btn--primary'}`} title={t.clause ? `${t.label} (${t.clause})` : t.hint} onClick={() => setMove(t)}>{t.label}</button>
               ))}
               {app.allowed_transitions.length === 0 && <span className="sl-text-xs sl-text-muted">No actions available for your role at this stage</span>}
             </div>
@@ -105,7 +111,7 @@ export default function ApplicationDetail() {
             <div className="aq-panel sl-mt-4 sl-flex sl-items-center sl-gap-2" style={{ borderColor: cs.deficient ? 'var(--sl-danger)' : 'var(--sl-warning)' }}>
               <FileText size={16} className="sl-text-accent" />
               <span className="sl-text-sm">
-                {app.stage === 'SUBMITTED' ? `${cs.missing.length} required document(s) not uploaded — scrutiny cannot start until the checklist is complete.`
+                {app.stage === 'SUBMITTED' ? `${cs.missing.length} required document(s) not uploaded — ${app.route?.stages?.includes('SCRUTINY') === false ? 'the self-disclosure cannot go to the Executive Committee' : 'scrutiny cannot start'} until the checklist is complete.`
                   : cs.deficient ? `${cs.deficient} document(s) marked deficient — ${user.role === 'Institution' ? 're-upload them' : 'raise a deficiency or wait for re-upload'}.`
                   : `${cs.unverified.length} required document(s) still to be verified before scrutiny can be cleared.`}
               </span>
@@ -244,7 +250,7 @@ function Checklist({ app, user, reload }) {
                 <td><div className="sl-text-sm sl-font-medium">{item.label}</div><div className="sl-text-xs sl-text-muted">{item.required ? 'Required' : 'Optional'}{item.verified_by ? ` · ${item.status === 'Verified' ? 'verified' : 'reviewed'} by ${item.verified_by}` : ''}</div>
                   {item.remarks && <div className={`sl-text-xs sl-mt-1 ${item.status === 'Deficient' ? 'sl-text-danger' : 'sl-text-muted'}`}>{item.remarks}</div>}</td>
                 <td><StatusBadge status={{ Pending: 'Not uploaded', Uploaded: 'Awaiting verification' }[item.status] || item.status} /></td>
-                <td className="sl-text-xs">{item.file_url ? <a href={item.file_url} target="_blank" rel="noreferrer" className="sl-text-accent">{item.file_name}</a> : item.file_name || '—'}</td>
+                <td className="sl-text-xs">{item.file_url ? <button type="button" className="sl-btn sl-btn--ghost sl-btn--sm sl-text-accent" onClick={() => downloadFile(item.file_url, item.file_name).catch(e => toast(e.message, 'error'))}>{item.file_name}</button> : item.file_name || '—'}</td>
                 <td className="sl-text-right">
                   {canUpload && item.status !== 'Verified' && (
                     <label className={`sl-btn sl-btn--${item.status === 'Pending' || item.status === 'Deficient' ? 'primary' : 'secondary'} sl-btn--sm`} style={{ cursor: 'pointer' }}>

@@ -39,7 +39,9 @@ function AlertList({ user }) {
   };
   useEffect(() => { load(); }, [status, severity]);
   const act = async (a, what) => {
-    try { await apiClient.patch(`/alerts/${a.id}/${what}`); toast(what === 'acknowledge' ? 'Acknowledged' : 'Resolved'); load(); } catch (e) { toast(e.message, 'error'); }
+    let body;
+    if (what === 'resolve') { const reason = window.prompt('How was this resolved?'); if (!reason) return; body = { reason }; }
+    try { await apiClient.patch(`/alerts/${a.id}/${what}`, body); toast(what === 'acknowledge' ? 'Acknowledged' : 'Resolved'); load(); } catch (e) { toast(e.message, 'error'); }
   };
   const open = a => {
     if (a.entity_type === 'Application') navigate(`/applications/${a.entity_id}`);

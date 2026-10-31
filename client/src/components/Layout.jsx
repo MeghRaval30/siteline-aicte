@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { Mail, LayoutDashboard, FileStack, FileUp, CalendarCheck, ShieldCheck, Building2, Siren, BarChart3, Bot, Activity, Settings, LogOut, Bell, Search, Menu, X, ChevronDown } from 'lucide-react';
+import { Mail, LayoutDashboard, FileStack, FileUp, CalendarCheck, ShieldCheck, Building2, Siren, BarChart3, Bot, Activity, Settings, LogOut, Bell, Search, Menu, X, ChevronDown, ArrowUpCircle } from 'lucide-react';
 import CommandPalette from './CommandPalette';
 import ErrorBoundary from './ErrorBoundary';
 import { apiClient } from '../api/client';
@@ -21,6 +21,7 @@ const NAV_SECTIONS = [
     items: [
       { to: '/compliance', icon: ShieldCheck, label: 'Documents & Undertakings', roles: ['Admin', 'Officer', 'Institution'], alt: { Institution: 'My Compliance' } },
       { to: '/institutions', icon: Building2, label: 'Institutions', roles: OFFICE },
+      { to: '/escalations', icon: ArrowUpCircle, label: 'Escalations', roles: ['Admin', 'Officer'] },
       { to: '/alerts', icon: Siren, label: 'Alert Center', roles: ['Admin', 'Officer', 'Institution'], alt: { Institution: 'My Alerts' } },
       { to: '/import', icon: FileUp, label: 'Import Studio', roles: OFFICE },
       { to: '/reports', icon: BarChart3, label: 'Reports', roles: OFFICE },
@@ -166,7 +167,7 @@ export default function Layout() {
                     {notifications.length === 0 ? (
                       <div className="sl-p-5 sl-text-center sl-text-muted sl-text-sm">No notifications</div>
                     ) : notifications.map(n => (
-                      <div key={n.id} className={`sl-notif-item ${!n.is_read ? 'sl-notif-item--unread' : ''}`} style={{ cursor: 'pointer' }} onClick={() => { const t = n.related_entity_type, id = n.related_entity_id; const to = t === 'Application' ? `/applications/${id}` : t === 'Document' ? (user.role === 'Expert' ? '/dashboard' : `/compliance?renew=${id}`) : t === 'Undertaking' ? '/compliance?tab=undertakings' : t === 'EVCVisit' ? '/evc' : t === 'Institution' ? (user.role === 'Institution' ? '/dashboard' : `/institutions/${id}`) : n.type === 'ALERT' ? '/alerts' : '/dashboard'; navigate(to); setNotifOpen(false); if (!n.is_read) apiClient.patch(`/notifications/${n.id}/read`).catch(() => {}); }}>
+                      <div key={n.id} className={`sl-notif-item ${!n.is_read ? 'sl-notif-item--unread' : ''}`} style={{ cursor: 'pointer' }} onClick={() => { const t = n.related_entity_type, id = n.related_entity_id; const to = t === 'Application' ? `/applications/${id}` : t === 'Document' ? (user.role === 'Expert' ? '/dashboard' : `/compliance?renew=${id}`) : t === 'Undertaking' ? '/compliance?tab=undertakings' : t === 'EVCVisit' ? '/evc' : t === 'Institution' ? (user.role === 'Institution' ? '/dashboard' : `/institutions/${id}`) : n.type === 'ESCALATION' ? '/escalations' : n.type === 'ALERT' ? '/alerts' : '/dashboard'; navigate(to); setNotifOpen(false); if (!n.is_read) apiClient.patch(`/notifications/${n.id}/read`).catch(() => {}); }}>
                         <div className="sl-notif-item__content">
                           <div className="sl-notif-item__message">{n.message}</div>
                           <div className="sl-notif-item__time">{n.type} · {new Date(n.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>

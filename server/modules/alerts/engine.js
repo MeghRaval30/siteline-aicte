@@ -13,6 +13,8 @@ const prisma = require('../../shared/prismaClient');
 const notify = require('../../shared/notify');
 const { STAGES, ACTIVE_STAGES, slaInfo, loadSlaOverrides, DAY } = require('../../shared/workflow');
 const { sweepStatuses } = require('../../shared/compliance');
+const { runReminders, runEscalations } = require('../../shared/escalation');
+const { anchor } = require('../../shared/audit');
 
 const TRIGGERS = {
   DOC_EXPIRING:        { label: 'Document expiring',        entity: 'Document',    params: ['days', 'doc_type'] },
@@ -192,9 +194,14 @@ async function runRule(rule, now = new Date()) {
 async function fanOut(rule, alerts) {
   const roles = (rule.notify_roles || '').split(',').map(s => s.trim()).filter(Boolean);
   if (roles.length) {
+    // Regional Officers hear only about their own Regional Office; the Bureau hears about everything.
+    const insts = await prisma.institution.findMany({ where: { id: { in: [...new Set(alerts.map(a => a.institution_id).filter(Boolean))] } }, select: { id: true, region_id: true } });
+    const regionOf = Object.fromEntries(insts.map(i => [i.id, i.region_id]));
     const staff = await prisma.user.findMany({ where: { role: { in: roles }, status: 'Active' } });
     for (const u of staff) {
-      await notify({ userId: u.id, type: 'ALERT', message: `[${rule.severity}] ${rule.name}: ${alerts.length} new alert${alerts.length > 1 ? 's' : ''}`, relatedEntityType: 'AlertRule', relatedEntityId: rule.id });
+      const n = u.role === 'Officer' && u.region_id ? alerts.filter(a => regionOf[a.institution_id] === u.region_id).length : alerts.length;
+      if (!n) continue;
+      await notify({ userId: u.id, type: 'ALERT', message: `[${rule.severity}] ${rule.name}: ${n} new alert${n > 1 ? 's' : ''}`, relatedEntityType: 'AlertRule', relatedEntityId: rule.id });
     }
   }
   if (rule.notify_institution) {
@@ -208,20 +215,31 @@ async function fanOut(rule, alerts) {
   }
 }
 
-let running = false;
-async function runAll({ ruleId } = {}) {
-  if (running) return { skipped: true };
-  running = true;
-  try {
+// Runs are serialised: a run requested while another is in progress waits for it and then
+// runs, so a change made during a run is always evaluated (never silently skipped).
+let queue = Promise.resolve();
+function runAll(opts = {}) {
+  const run = queue.then(() => runOnce(opts));
+  queue = run.catch(() => {});
+  return run;
+}
+
+async function runOnce({ ruleId } = {}) {
+  {
     const now = new Date();
     await loadSlaOverrides(prisma);
     const sweep = await sweepStatuses(now);
     const rules = await prisma.alertRule.findMany({ where: { active: true, ...(ruleId ? { id: ruleId } : {}) } });
     const results = [];
     for (const r of rules) results.push(await runRule(r, now));
-    return { ran_at: now, sweep, results };
-  } finally {
-    running = false;
+    if (ruleId) return { ran_at: now, sweep, results };
+    // Reminders nudge whoever must act; escalations move what is still overdue up the ladder.
+    const reminders = await runReminders(now);
+    const escalations = await runEscalations(now);
+    // Publish the audit chain's head once a day so a rewritten history no longer matches.
+    const lastAnchor = await prisma.auditAnchor.findFirst({ orderBy: { id: 'desc' } });
+    if (!lastAnchor || now - lastAnchor.at > DAY) await anchor(prisma);
+    return { ran_at: now, sweep, results, reminders, escalations };
   }
 }
 
