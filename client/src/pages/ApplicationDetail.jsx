@@ -111,7 +111,7 @@ export default function ApplicationDetail() {
             <div className="aq-panel sl-mt-4 sl-flex sl-items-center sl-gap-2" style={{ borderColor: cs.deficient ? 'var(--sl-danger)' : 'var(--sl-warning)' }}>
               <FileText size={16} className="sl-text-accent" />
               <span className="sl-text-sm">
-                {app.stage === 'SUBMITTED' ? `${cs.missing.length} required document(s) not uploaded — scrutiny cannot start until the checklist is complete.`
+                {app.stage === 'SUBMITTED' ? `${cs.missing.length} required document(s) not uploaded — ${app.route?.stages?.includes('SCRUTINY') === false ? 'the self-disclosure cannot go to the Executive Committee' : 'scrutiny cannot start'} until the checklist is complete.`
                   : cs.deficient ? `${cs.deficient} document(s) marked deficient — ${user.role === 'Institution' ? 're-upload them' : 'raise a deficiency or wait for re-upload'}.`
                   : `${cs.unverified.length} required document(s) still to be verified before scrutiny can be cleared.`}
               </span>
