@@ -78,8 +78,8 @@ export default function Dashboard() {
                 <XAxis dataKey="label" {...axis} />
                 <YAxis allowDecimals={false} {...axis} />
                 <Tooltip {...tip} formatter={(v, n) => [v, n === 'within' ? 'Within SLA' : 'SLA breached']} labelFormatter={(l, p) => p?.[0] ? `${p[0].payload.full_label} · SLA ${p[0].payload.sla_days}d · avg ${p[0].payload.avg_days}d` : l} />
-                <Bar dataKey="within" stackId="a" fill="#c96442" radius={[0, 0, 0, 0]} style={{ cursor: 'pointer' }} onClick={(_, i) => navigate(`/applications?stage=${d.pipeline[i].stage}`)} />
-                <Bar dataKey="breached" stackId="a" fill="#9b1c1c" radius={[4, 4, 0, 0]} style={{ cursor: 'pointer' }} onClick={(_, i) => navigate(`/applications?stage=${d.pipeline[i].stage}&overdue=1`)} />
+                <Bar dataKey="within" stackId="a" fill="#005ea2" radius={[0, 0, 0, 0]} style={{ cursor: 'pointer' }} onClick={(_, i) => navigate(`/applications?stage=${d.pipeline[i].stage}`)} />
+                <Bar dataKey="breached" stackId="a" fill="#b50909" radius={[4, 4, 0, 0]} style={{ cursor: 'pointer' }} onClick={(_, i) => navigate(`/applications?stage=${d.pipeline[i].stage}&overdue=1`)} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -120,7 +120,7 @@ export default function Dashboard() {
                   <td><span className="sl-font-medium">{r.region}</span> <span className="sl-text-xs sl-text-muted">{r.region_name.replace(' Regional Office', '')}</span></td>
                   {d.pipeline.map(p => {
                     const v = r[p.stage];
-                    return <td key={p.stage} className="aq-heat__cell" style={{ background: v ? `rgba(201,100,66,${0.1 + 0.6 * v / maxHeat})` : undefined, color: v ? undefined : 'var(--sl-text-muted)', cursor: v ? 'pointer' : undefined }}
+                    return <td key={p.stage} className="aq-heat__cell" style={{ background: v ? `rgba(0,94,162,${0.1 + 0.55 * v / maxHeat})` : undefined, color: v ? undefined : 'var(--sl-text-muted)', cursor: v ? 'pointer' : undefined }}
                       onClick={() => v && navigate(`/applications?stage=${p.stage}&region=${r.region}`)}>{v || '·'}</td>;
                   })}
                   <td className="aq-heat__cell">{r.total}</td>
